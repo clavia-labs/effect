@@ -96,9 +96,10 @@ export default defineConfig({
           exclude: isDeno ? ["test/cluster/**"] : []
         }
       }),
-      ...project("@effect/ai-anthropic", "packages/ai/anthropic"),
-      ...project("@effect/ai-openai", "packages/ai/openai"),
-      ...project("@effect/ai-openai-compat", "packages/ai/openai-compat"),
+      ...project("@clavia/ai", "packages/ai/clavia"),
+      ...project("@clavia/ai-anthropic", "packages/ai/anthropic"),
+      ...project("@clavia/ai-openai", "packages/ai/openai"),
+      ...project("@clavia/ai-openai-compat", "packages/ai/openai-compat"),
       ...project("@effect/ai-openrouter", "packages/ai/openrouter"),
       ...project("@effect/atom-react", "packages/atom/react", true, {
         test: {

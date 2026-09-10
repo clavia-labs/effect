@@ -8,6 +8,7 @@
  * @since 4.0.0
  */
 /** @effect-diagnostics preferSchemaOverJson:skip-file */
+import * as ProviderLanguageModel from "@clavia/ai/LanguageModel"
 import * as Arr from "effect/Array"
 import * as Context from "effect/Context"
 import * as DateTime from "effect/DateTime"
@@ -737,7 +738,7 @@ export const make = Effect.fnUntraced(function*({ model, config: providerConfig 
     }
   )
 
-  return yield* LanguageModel.make({
+  return yield* ProviderLanguageModel.make({
     codecTransformer: toCodecAnthropic,
     generateText: Effect.fnUntraced(function*(options) {
       const config = yield* makeConfig
@@ -2021,6 +2022,7 @@ const makeStreamResponse = Effect.fnUntraced(
 
     let blockType: typeof Generated.BetaContentBlockStartEvent.Encoded["content_block"]["type"] | undefined = undefined
 
+    let toolParseError: AiError.AiError | undefined
     return stream.pipe(
       Stream.mapEffect(Effect.fnUntraced(function*(event) {
         const parts: Array<Response.StreamPartEncoded> = []
@@ -2675,13 +2677,42 @@ const makeStreamResponse = Effect.fnUntraced(
                     }
                   }
 
-                  const params = contentBlock.providerExecuted === true
-                    ? Tool.unsafeSecureJsonParse(finalParams)
-                    : yield* transformToolCallParams(
-                      options.tools,
-                      contentBlock.name,
-                      Tool.unsafeSecureJsonParse(finalParams)
-                    )
+                  const parsed = yield* Effect.try({
+                    try: () => Tool.unsafeSecureJsonParse(finalParams),
+                    catch: (cause) =>
+                      AiError.make({
+                        module: "AnthropicLanguageModel",
+                        method: "makeStreamResponse",
+                        reason: new AiError.ToolParameterValidationError({
+                          toolName: contentBlock.name,
+                          toolParams: {},
+                          description: `Failed to securely JSON parse tool parameters: ${cause}`
+                        })
+                      })
+                  }).pipe(Effect.result)
+                  if (parsed._tag === "Failure") {
+                    toolParseError ??= parsed.failure
+                    break
+                  }
+                  const rawParams = parsed.success
+                  const validation = contentBlock.providerExecuted === true
+                    ? { params: rawParams }
+                    : yield* validateStreamTool(options.tools, contentBlock.name, rawParams)
+                  if ("error" in validation) {
+                    parts.push({
+                      type: "error",
+                      error: {
+                        _tag: "ToolCallValidationError",
+                        id: contentBlock.id,
+                        name: contentBlock.name,
+                        params: rawParams,
+                        cause: validation.error,
+                        providerMetadata: {}
+                      }
+                    })
+                    break
+                  }
+                  const params = validation.params
 
                   parts.push({
                     type: "tool-call",
@@ -2717,9 +2748,11 @@ const makeStreamResponse = Effect.fnUntraced(
           }
         }
 
+        if (parts.some((part) => part.type === "finish" && part.reason === "length")) toolParseError = undefined
         return parts
       })),
-      Stream.flattenIterable
+      Stream.flattenIterable,
+      Stream.concat(Stream.suspend(() => toolParseError === undefined ? Stream.empty : Stream.fail(toolParseError)))
     )
   }
 )
@@ -3104,6 +3137,21 @@ const transformToolCallParams = Effect.fnUntraced(function*<Tools extends Readon
     })
   }
 
+  if (Tool.isDynamic(tool) && tool.jsonSchema !== undefined) {
+    return yield* Schema.decodeUnknownEffect(Schema.toEncoded(tool.parametersSchema))(toolParams).pipe(
+      Effect.mapError((error) =>
+        AiError.make({
+          module: "AnthropicLanguageModel",
+          method: "makeResponse",
+          reason: new AiError.ToolParameterValidationError({
+            toolName,
+            toolParams,
+            description: formatIssue(error.issue)
+          })
+        })
+      )
+    )
+  }
   const { codec } = yield* tryCodecTransform(tool.parametersSchema, "makeResponse")
 
   const transform = Schema.decodeEffect(codec)
@@ -3122,3 +3170,15 @@ const transformToolCallParams = Effect.fnUntraced(function*<Tools extends Readon
     })
   ))
 })
+
+// validateStreamTool returns parameter failures only for tools that opt into return mode.
+const validateStreamTool = (tools: ReadonlyArray<Tool.Any>, name: string, params: unknown) =>
+  transformToolCallParams(tools, name, params).pipe(
+    Effect.map((params) => ({ params })),
+    Effect.catch((error) =>
+      error.reason._tag === "ToolParameterValidationError" &&
+        tools.some((tool) => tool.name === name && tool.failureMode === "return")
+        ? Effect.succeed({ error: Schema.encodeSync(AiError.AiError)(error) })
+        : Effect.fail(error)
+    )
+  )

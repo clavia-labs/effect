@@ -1,4 +1,4 @@
-import { OpenAiClient, OpenAiLanguageModel } from "@effect/ai-openai-compat"
+import { OpenAiClient, OpenAiLanguageModel } from "@clavia/ai-openai-compat"
 import { assert, describe, it } from "@effect/vitest"
 import { Effect, Layer, Redacted, Ref, Schema, Stream } from "effect"
 import { LanguageModel, Prompt, Tool, Toolkit } from "effect/unstable/ai"
@@ -860,6 +860,27 @@ describe("OpenAiLanguageModel", () => {
   })
 
   describe("streamText", () => {
+    it.effect("rejects a sentinel without provider completion", () =>
+      Effect.gen(function*() {
+        const layer = OpenAiClient.layer({ apiKey: Redacted.make("sk-test-key") }).pipe(
+          Layer.provide(Layer.succeed(
+            HttpClient.HttpClient,
+            makeHttpClient((request) => Effect.succeed(sseResponse(request, ["[DONE]"])))
+          ))
+        )
+        const result = yield* LanguageModel.streamText({ prompt: "test" }).pipe(
+          Stream.runCollect,
+          Effect.provide(OpenAiLanguageModel.model("gpt-4o-mini")),
+          Effect.provide(layer),
+          Effect.result
+        )
+        assert.strictEqual(result._tag, "Failure")
+        if (result._tag === "Failure") {
+          assert.strictEqual(result.failure.reason._tag, "NetworkError")
+          assert.strictEqual(result.failure.isRetryable, true)
+        }
+      }))
+
     it.effect("handles chat completion stream chunks", () =>
       Effect.gen(function*() {
         const layer = OpenAiClient.layer({ apiKey: Redacted.make("sk-test-key") }).pipe(
@@ -922,6 +943,13 @@ describe("OpenAiLanguageModel", () => {
                     },
                     finish_reason: null
                   }]
+                },
+                {
+                  id: "chatcmpl_nullable_tool_calls",
+                  object: "chat.completion.chunk",
+                  model: "inception/mercury-2",
+                  created: 1,
+                  choices: [{ index: 0, delta: {}, finish_reason: "stop" }]
                 },
                 "[DONE]"
               ]))

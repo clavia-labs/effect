@@ -1,5 +1,5 @@
-import { OpenAiClient, OpenAiLanguageModel } from "@effect/ai-openai"
-import * as OpenAiSchema from "@effect/ai-openai/OpenAiSchema"
+import { OpenAiClient, OpenAiLanguageModel } from "@clavia/ai-openai"
+import * as OpenAiSchema from "@clavia/ai-openai/OpenAiSchema"
 import { assert, describe, it } from "@effect/vitest"
 import { Effect, Layer, Schema, Stream } from "effect"
 import { LanguageModel } from "effect/unstable/ai"

@@ -160,13 +160,13 @@ importers:
 
   ai-docs:
     dependencies:
-      '@effect/ai-anthropic':
+      '@clavia/ai-anthropic':
         specifier: workspace:*
         version: link:../packages/ai/anthropic
-      '@effect/ai-openai':
+      '@clavia/ai-openai':
         specifier: workspace:*
         version: link:../packages/ai/openai
-      '@effect/ai-openai-compat':
+      '@clavia/ai-openai-compat':
         specifier: workspace:*
         version: link:../packages/ai/openai-compat
       '@effect/ai-openrouter':
@@ -241,18 +241,37 @@ importers:
         version: 8.0.1
 
   packages/ai/anthropic:
+    dependencies:
+      '@clavia/ai':
+        specifier: workspace:*
+        version: link:../clavia
     devDependencies:
       effect:
         specifier: workspace:^
         version: link:../../effect
 
+  packages/ai/clavia:
+    devDependencies:
+      effect:
+        specifier: workspace:^
+        version: link:../../effect
+
+
   packages/ai/openai:
+    dependencies:
+      '@clavia/ai':
+        specifier: workspace:*
+        version: link:../clavia
     devDependencies:
       effect:
         specifier: workspace:^
         version: link:../../effect
 
   packages/ai/openai-compat:
+    dependencies:
+      '@clavia/ai':
+        specifier: workspace:*
+        version: link:../clavia
     devDependencies:
       effect:
         specifier: workspace:^
@@ -955,13 +974,13 @@ importers:
 
   scratchpad:
     dependencies:
-      '@effect/ai-anthropic':
+      '@clavia/ai-anthropic':
         specifier: workspace:*
         version: link:../packages/ai/anthropic
-      '@effect/ai-openai':
+      '@clavia/ai-openai':
         specifier: workspace:*
         version: link:../packages/ai/openai
-      '@effect/ai-openai-compat':
+      '@clavia/ai-openai-compat':
         specifier: workspace:*
         version: link:../packages/ai/openai-compat
       '@effect/ai-openrouter':

@@ -1,0 +1,79 @@
+name: Clavia packages
+
+on:
+  push:
+    branches: [clavia/ai-providers]
+  pull_request:
+    branches: [clavia/ai-providers]
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish the checked packages to npm
+        type: boolean
+        default: false
+      npm_tag:
+        description: npm distribution tag
+        type: choice
+        options: [next, latest]
+        default: next
+
+permissions:
+  contents: read
+
+concurrency:
+  group: clavia-packages-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  check:
+    if: github.repository == 'clavia-labs/effect'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24.15.0
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm check
+      - name: Test providers
+        run: pnpm test --run packages/ai/clavia/test/LanguageModel.test.ts packages/ai/clavia/test/ProviderStreams.test.ts packages/ai/openai/test packages/ai/anthropic/test packages/ai/openai-compat/test
+      - name: Build packages
+        run: pnpm -r --filter @clavia/ai --filter @clavia/ai-openai --filter @clavia/ai-anthropic --filter @clavia/ai-openai-compat build
+      - run: node scripts/clavia-release.mjs pack
+      - run: node scripts/clavia-release.mjs check
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: clavia-packages
+          path: artifacts/clavia/*.tgz
+          if-no-files-found: error
+
+  publish:
+    needs: check
+    if: github.repository == 'clavia-labs/effect' && github.event_name == 'workflow_dispatch' && inputs.publish && github.ref == 'refs/heads/clavia/ai-providers'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: npm
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24.15.0
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: clavia-packages
+          path: artifacts/clavia
+      - name: Publish with npm trusted publishing
+        env:
+          NPM_TAG: ${{ inputs.npm_tag }}
+        run: node scripts/clavia-release.mjs publish "$NPM_TAG"

@@ -1,4 +1,4 @@
-import { AnthropicClient } from "@effect/ai-anthropic"
+import { AnthropicClient } from "@clavia/ai-anthropic"
 import { assert, describe, it } from "@effect/vitest"
 import { Context, Effect, Layer, Redacted, type Schema } from "effect"
 import {
