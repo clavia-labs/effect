@@ -1,5 +1,5 @@
-import { OpenAiClient } from "@effect/ai-openai-compat"
-import * as Errors from "@effect/ai-openai-compat/internal/errors"
+import { OpenAiClient } from "@clavia/ai-openai-compat"
+import * as Errors from "@clavia/ai-openai-compat/internal/errors"
 import { assert, describe, it } from "@effect/vitest"
 import { Context, Effect, Layer, Redacted, type Schema, Stream } from "effect"
 import {

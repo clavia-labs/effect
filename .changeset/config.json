@@ -15,9 +15,6 @@
   "fixed": [
     [
       "effect",
-      "@effect/ai-anthropic",
-      "@effect/ai-openai",
-      "@effect/ai-openai-compat",
       "@effect/ai-openrouter",
       "@effect/atom-react",
       "@effect/atom-solid",

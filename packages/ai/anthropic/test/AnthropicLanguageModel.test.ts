@@ -1,4 +1,4 @@
-import { AnthropicClient, AnthropicLanguageModel, AnthropicTool } from "@effect/ai-anthropic"
+import { AnthropicClient, AnthropicLanguageModel, AnthropicTool } from "@clavia/ai-anthropic"
 import { assert, describe, it } from "@effect/vitest"
 import { Effect, Layer, Redacted, Schema, Stream } from "effect"
 import {

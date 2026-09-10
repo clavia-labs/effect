@@ -4,9 +4,9 @@
   "type": "module",
   "version": "0.0.0",
   "dependencies": {
-    "@effect/ai-anthropic": "workspace:*",
-    "@effect/ai-openai": "workspace:*",
-    "@effect/ai-openai-compat": "workspace:*",
+    "@clavia/ai-anthropic": "workspace:*",
+    "@clavia/ai-openai": "workspace:*",
+    "@clavia/ai-openai-compat": "workspace:*",
     "@effect/ai-openrouter": "workspace:*",
     "@effect/atom-react": "workspace:*",
     "@effect/atom-solid": "workspace:*",

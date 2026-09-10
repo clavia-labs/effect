@@ -1,4 +1,4 @@
-import { OpenAiClient, OpenAiEmbeddingModel } from "@effect/ai-openai"
+import { OpenAiClient, OpenAiEmbeddingModel } from "@clavia/ai-openai"
 import { assert, describe, it } from "@effect/vitest"
 import { Effect, Layer, Redacted } from "effect"
 import { EmbeddingModel } from "effect/unstable/ai"

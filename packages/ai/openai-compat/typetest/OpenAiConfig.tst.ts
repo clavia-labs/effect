@@ -1,4 +1,4 @@
-import { OpenAiEmbeddingModel, OpenAiLanguageModel } from "@effect/ai-openai-compat"
+import { OpenAiEmbeddingModel, OpenAiLanguageModel } from "@clavia/ai-openai-compat"
 import { describe, expect, it } from "tstyche"
 
 describe("OpenAI-compatible config", () => {

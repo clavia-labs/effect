@@ -8,6 +8,7 @@
  *
  * @since 4.0.0
  */
+import * as ProviderLanguageModel from "@clavia/ai/LanguageModel"
 import * as Context from "effect/Context"
 import * as DateTime from "effect/DateTime"
 import * as Effect from "effect/Effect"
@@ -149,6 +150,7 @@ declare module "effect/unstable/ai/Prompt" {
    * @since 4.0.0
    */
   export interface ReasoningPartOptions extends ProviderOptions {
+    readonly openaiCompat?: { readonly reasoningField: "reasoning" | "reasoning_content" }
     /**
      * Provider-specific reasoning options for OpenAI-compatible APIs.
      */
@@ -177,6 +179,7 @@ declare module "effect/unstable/ai/Prompt" {
      * Provider-specific tool-call options for OpenAI-compatible APIs.
      */
     readonly openai?: {
+      readonly approvalRequestId?: string | null
       /**
        * The ID of the item to reference.
        */
@@ -199,6 +202,7 @@ declare module "effect/unstable/ai/Prompt" {
      * Provider-specific tool-result options for OpenAI-compatible APIs.
      */
     readonly openai?: {
+      readonly approvalId?: string | null
       /**
        * The ID of the item to reference.
        */
@@ -339,6 +343,7 @@ declare module "effect/unstable/ai/Response" {
    * @since 4.0.0
    */
   export interface ReasoningStartPartMetadata extends ProviderMetadata {
+    readonly openaiCompat?: { readonly reasoningField: "reasoning" | "reasoning_content" }
     /**
      * Provider-specific metadata returned for the streamed reasoning start.
      */
@@ -505,6 +510,7 @@ declare module "effect/unstable/ai/Response" {
      * Provider-specific metadata returned when generation finishes.
      */
     readonly openai?: {
+      readonly usage?: Schema.JsonObject
       /**
        * The service tier reported by the OpenAI-compatible provider.
        */
@@ -619,7 +625,7 @@ export const make = Effect.fnUntraced(function*({ model, config: providerConfig 
     }
   )
 
-  return yield* LanguageModel.make({
+  return yield* ProviderLanguageModel.make({
     codecTransformer: toCodecOpenAI,
     generateText: Effect.fnUntraced(
       function*(options) {
@@ -901,6 +907,7 @@ const prepareMessages = Effect.fnUntraced(
                         type: "reasoning",
                         id,
                         summary: summaryParts,
+                        reasoning_field: part.options.openaiCompat?.reasoningField,
                         encrypted_content: encryptedContent ?? null
                       }
 
@@ -1161,6 +1168,18 @@ const makeStreamResponse = Effect.fnUntraced(
         const parts: Array<Response.StreamPartEncoded> = []
 
         if (event === "[DONE]") {
+          if (finishReason == null || finishReason.length === 0) {
+            return yield* AiError.make({
+              module: "OpenAiLanguageModel",
+              method: "makeStreamResponse",
+              reason: AiError.NetworkError.make({
+                reason: "TransportError",
+                request: buildHttpRequestDetails(response.request),
+                description: "Model stream ended before provider completion"
+              })
+            })
+          }
+
           if (reasoningStarted) {
             parts.push({
               type: "reasoning-end",
@@ -1178,6 +1197,10 @@ const makeStreamResponse = Effect.fnUntraced(
           }
 
           for (const toolCall of Object.values(activeToolCalls)) {
+            if (finishReason === "length") {
+              parts.push({ type: "tool-params-end", id: toolCall.id })
+              continue
+            }
             const toolParams = toolCall.arguments.length > 0 ? toolCall.arguments : "{}"
             const parsedParams = yield* Effect.try({
               try: () => Tool.unsafeSecureJsonParse(toolParams),
@@ -1191,15 +1214,30 @@ const makeStreamResponse = Effect.fnUntraced(
                   })
                 })
             })
-            const params = yield* transformToolCallParams(options.tools, toolCall.name, parsedParams)
+            const validated = yield* validateStreamTool(options.tools, toolCall.name, parsedParams)
+            const metadata = { openai: { ...makeItemIdMetadata(toolCall.id) } }
             parts.push({ type: "tool-params-end", id: toolCall.id })
-            parts.push({
-              type: "tool-call",
-              id: toolCall.id,
-              name: toolCall.name,
-              params,
-              metadata: { openai: { ...makeItemIdMetadata(toolCall.id) } }
-            })
+            if ("error" in validated) {
+              parts.push({
+                type: "error",
+                error: {
+                  _tag: "ToolCallValidationError",
+                  id: toolCall.id,
+                  name: toolCall.name,
+                  params: parsedParams,
+                  cause: validated.error,
+                  providerMetadata: metadata
+                }
+              })
+            } else {
+              parts.push({
+                type: "tool-call",
+                id: toolCall.id,
+                name: toolCall.name,
+                params: validated.params,
+                metadata
+              })
+            }
             hasToolCalls = true
           }
 
@@ -1209,9 +1247,14 @@ const makeStreamResponse = Effect.fnUntraced(
             reason: InternalUtilities.resolveFinishReason(finishReason, hasToolCalls),
             usage: getUsage(usage),
             response: buildHttpResponseDetails(response),
-            ...(normalizedServiceTier !== undefined
-              ? { metadata: { openai: { serviceTier: normalizedServiceTier } } }
-              : undefined)
+            metadata: {
+              openai: {
+                ...(normalizedServiceTier === undefined ? {} : { serviceTier: normalizedServiceTier }),
+                ...(usage == null
+                  ? {}
+                  : { usage: Schema.decodeUnknownSync(Schema.Record(Schema.String, Schema.Json))(usage) })
+              }
+            }
           })
           return parts
         }
@@ -1254,7 +1297,10 @@ const makeStreamResponse = Effect.fnUntraced(
             parts.push({
               type: "reasoning-start",
               id: reasoningId,
-              metadata: { openai: { ...makeItemIdMetadata(reasoningId) } }
+              metadata: {
+                openai: { ...makeItemIdMetadata(reasoningId) },
+                openaiCompat: { reasoningField: choice.delta?.reasoning != null ? "reasoning" : "reasoning_content" }
+              }
             })
           }
           parts.push({ type: "reasoning-delta", id: reasoningId, delta: reasoningDelta })
@@ -1445,6 +1491,21 @@ const transformToolCallParams = Effect.fnUntraced(function*<Tools extends Readon
     })
   }
 
+  if (Tool.isDynamic(tool) && tool.jsonSchema !== undefined) {
+    return yield* Schema.decodeUnknownEffect(Schema.toEncoded(tool.parametersSchema))(toolParams).pipe(
+      Effect.mapError((error) =>
+        AiError.make({
+          module: "OpenAiLanguageModel",
+          method: "makeResponse",
+          reason: new AiError.ToolParameterValidationError({
+            toolName,
+            toolParams,
+            description: formatIssue(error.issue)
+          })
+        })
+      )
+    )
+  }
   const { codec } = yield* tryCodecTransform(tool.parametersSchema, "makeResponse")
 
   // Normalize valid parameters; leave invalid ones for Toolkit.
@@ -1708,13 +1769,37 @@ const toChatMessages = (
   const messages: Array<CreateResponseRequestJson["messages"][number]> = []
 
   for (const item of input) {
+    if (Predicate.hasProperty(item, "type") && item.type === "reasoning" && item.reasoning_field !== undefined) {
+      const previous = messages.at(-1)
+      const text = item.summary.map((part) => part.text).join("")
+      if (previous?.role === "assistant") {
+        messages[messages.length - 1] = {
+          ...previous,
+          [item.reasoning_field]: (previous[item.reasoning_field] ?? "") + text
+        }
+      } else {
+        messages.push({ role: "assistant", content: null, [item.reasoning_field]: text })
+      }
+      continue
+    }
+    if (Predicate.hasProperty(item, "type") && item.type === "message" && item.role === "assistant") {
+      const previous = messages.at(-1)
+      if (
+        previous?.role === "assistant" &&
+        (previous.reasoning !== undefined || previous.reasoning_content !== undefined) && previous.content === null
+      ) {
+        messages[messages.length - 1] = { ...previous, content: toAssistantChatMessageContent(item.content) }
+        continue
+      }
+    }
+
     if (Predicate.hasProperty(item, "type") && item.type === "function_call") {
       const previous = messages.at(-1)
       const toolCall = toChatToolCall(item)
-      if (previous?.role === "assistant" && previous.tool_calls !== undefined) {
+      if (previous?.role === "assistant") {
         messages[messages.length - 1] = {
           ...previous,
-          tool_calls: [...previous.tool_calls, toolCall]
+          tool_calls: [...(previous.tool_calls ?? []), toolCall]
         }
       } else {
         messages.push({
@@ -2022,3 +2107,14 @@ const getUsageDetailNumber = (
   const value = (details as Record<string, unknown>)[field]
   return typeof value === "number" ? value : undefined
 }
+
+const validateStreamTool = (tools: ReadonlyArray<Tool.Any>, name: string, params: unknown) =>
+  transformToolCallParams(tools, name, params).pipe(
+    Effect.map((params) => ({ params })),
+    Effect.catch((error) =>
+      error.reason._tag === "ToolParameterValidationError" &&
+        tools.some((tool) => tool.name === name && tool.failureMode === "return")
+        ? Effect.succeed({ error: Schema.encodeSync(AiError.AiError)(error) })
+        : Effect.fail(error)
+    )
+  )
