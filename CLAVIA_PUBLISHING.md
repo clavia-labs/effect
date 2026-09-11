@@ -1,27 +1,27 @@
 # Publish Clavia AI packages
 
-The `clavia/ai-providers` branch publishes five packages from this fork. Providers retain a pinned `effect` peer dependency. Install `@clavia/effect` under the `effect` alias to use the upstream declaration fix.
+The `clavia/ai-providers` branch publishes five packages from this fork. Providers retain a pinned `effect` peer dependency. Install `@tardie/effect` under the `effect` alias to use the upstream declaration fix.
 
 | Directory                   | npm package                | Initial version         |
 | --------------------------- | -------------------------- | ----------------------- |
-| `packages/effect`           | `@clavia/effect`           | `4.0.0-rc.113`          |
-| `packages/ai/clavia`        | `@clavia/ai`               | `0.0.1`                 |
-| `packages/ai/openai`        | `@clavia/ai-openai`        | `4.0.0-rc.113-clavia.0` |
-| `packages/ai/anthropic`     | `@clavia/ai-anthropic`     | `4.0.0-rc.113-clavia.0` |
-| `packages/ai/openai-compat` | `@clavia/ai-openai-compat` | `4.0.0-rc.113-clavia.0` |
+| `packages/effect`           | `@tardie/effect`           | `4.0.0-rc.113`          |
+| `packages/ai/clavia`        | `@tardie/ai`               | `0.0.1`                 |
+| `packages/ai/openai`        | `@tardie/ai-openai`        | `4.0.0-rc.113-clavia.0` |
+| `packages/ai/anthropic`     | `@tardie/ai-anthropic`     | `4.0.0-rc.113-clavia.0` |
+| `packages/ai/openai-compat` | `@tardie/ai-openai-compat` | `4.0.0-rc.113-clavia.0` |
 
 ## Install packages
 
 After publication, install the runtime alias and the required provider:
 
 ```sh
-npm install effect@npm:@clavia/effect@4.0.0-rc.113 @clavia/ai-openai@4.0.0-rc.113-clavia.0
+npm install effect@npm:@tardie/effect@4.0.0-rc.113 @tardie/ai-openai@4.0.0-rc.113-clavia.0
 npm ls effect
 ```
 
 All consumers keep their `effect` imports. The dependency tree must resolve to one Effect runtime. The scoped runtime retains version `4.0.0-rc.113` so existing exact peer dependencies accept it. Its package name identifies the fork. The release script changes the archive name and repository metadata; the workspace package remains `effect`.
 
-`@clavia/effect` contains upstream rc.113 plus [the declaration fix in #8162](https://github.com/Effect-TS/effect/pull/8162). The runtime package can return to upstream after a compatible release includes this fix.
+`@tardie/effect` contains upstream rc.113 plus [the declaration fix in #8162](https://github.com/Effect-TS/effect/pull/8162). The runtime package can return to upstream after a compatible release includes this fix.
 
 ## Check packages
 
@@ -42,11 +42,11 @@ npm requires a package to exist before its trusted publisher can be configured. 
 
 ```sh
 npm login
-npm publish artifacts/clavia/clavia-effect-4.0.0-rc.113.tgz --access public --tag next --provenance=false
-npm publish artifacts/clavia/clavia-ai-0.0.1.tgz --access public --tag next --provenance=false
-npm publish artifacts/clavia/clavia-ai-openai-4.0.0-rc.113-clavia.0.tgz --access public --tag next --provenance=false
-npm publish artifacts/clavia/clavia-ai-anthropic-4.0.0-rc.113-clavia.0.tgz --access public --tag next --provenance=false
-npm publish artifacts/clavia/clavia-ai-openai-compat-4.0.0-rc.113-clavia.0.tgz --access public --tag next --provenance=false
+npm publish artifacts/clavia/tardie-effect-4.0.0-rc.113.tgz --access public --tag next --provenance=false
+npm publish artifacts/clavia/tardie-ai-0.0.1.tgz --access public --tag next --provenance=false
+npm publish artifacts/clavia/tardie-ai-openai-4.0.0-rc.113-clavia.0.tgz --access public --tag next --provenance=false
+npm publish artifacts/clavia/tardie-ai-anthropic-4.0.0-rc.113-clavia.0.tgz --access public --tag next --provenance=false
+npm publish artifacts/clavia/tardie-ai-openai-compat-4.0.0-rc.113-clavia.0.tgz --access public --tag next --provenance=false
 ```
 
 Local bootstrap publication has no GitHub provenance. Subsequent CI publications use OIDC authentication and provenance.
@@ -61,11 +61,11 @@ Use npm 11.15 or later with an authenticated account. Each package needs this tr
 - Permission: direct publication
 
 ```sh
-npm trust github @clavia/effect --repo clavia-labs/effect --file clavia-publish.yml --env npm --allow-publish
-npm trust github @clavia/ai --repo clavia-labs/effect --file clavia-publish.yml --env npm --allow-publish
-npm trust github @clavia/ai-openai --repo clavia-labs/effect --file clavia-publish.yml --env npm --allow-publish
-npm trust github @clavia/ai-anthropic --repo clavia-labs/effect --file clavia-publish.yml --env npm --allow-publish
-npm trust github @clavia/ai-openai-compat --repo clavia-labs/effect --file clavia-publish.yml --env npm --allow-publish
+npm trust github @tardie/effect --repo clavia-labs/effect --file clavia-publish.yml --env npm --allow-publish
+npm trust github @tardie/ai --repo clavia-labs/effect --file clavia-publish.yml --env npm --allow-publish
+npm trust github @tardie/ai-openai --repo clavia-labs/effect --file clavia-publish.yml --env npm --allow-publish
+npm trust github @tardie/ai-anthropic --repo clavia-labs/effect --file clavia-publish.yml --env npm --allow-publish
+npm trust github @tardie/ai-openai-compat --repo clavia-labs/effect --file clavia-publish.yml --env npm --allow-publish
 ```
 
 npm can require an interactive two-factor check. The workflow needs no npm token secret. See [npm trusted publishing](https://docs.npmjs.com/trusted-publishers/) and [npm trust prerequisites](https://docs.npmjs.com/cli/v11/commands/npm-trust/).

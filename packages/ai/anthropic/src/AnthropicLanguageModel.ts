@@ -8,7 +8,7 @@
  * @since 4.0.0
  */
 /** @effect-diagnostics preferSchemaOverJson:skip-file */
-import * as ProviderLanguageModel from "@clavia/ai/LanguageModel"
+import * as ProviderLanguageModel from "@tardie/ai/LanguageModel"
 import * as Arr from "effect/Array"
 import * as Context from "effect/Context"
 import * as DateTime from "effect/DateTime"

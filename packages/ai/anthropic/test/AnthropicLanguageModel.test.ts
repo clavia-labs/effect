@@ -1,5 +1,5 @@
-import { AnthropicClient, AnthropicLanguageModel, AnthropicTool } from "@clavia/ai-anthropic"
 import { assert, describe, it } from "@effect/vitest"
+import { AnthropicClient, AnthropicLanguageModel, AnthropicTool } from "@tardie/ai-anthropic"
 import { Effect, Layer, Redacted, Schema, Stream } from "effect"
 import {
   type AiError,

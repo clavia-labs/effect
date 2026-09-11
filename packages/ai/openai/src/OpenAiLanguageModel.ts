@@ -8,7 +8,7 @@
  *
  * @since 4.0.0
  */
-import * as ProviderLanguageModel from "@clavia/ai/LanguageModel"
+import * as ProviderLanguageModel from "@tardie/ai/LanguageModel"
 import * as Context from "effect/Context"
 import * as DateTime from "effect/DateTime"
 import * as Effect from "effect/Effect"

@@ -1,11 +1,11 @@
-# @clavia/ai-anthropic
+# @tardie/ai-anthropic
 
 An [Anthropic](https://www.anthropic.com) provider for the Effect AI modules. Includes a typed Anthropic API client, language model layers, tools, and telemetry helpers.
 
 ## Installation
 
 ```sh
-npm install effect@rc @clavia/ai-anthropic@rc
+npm install effect@rc @tardie/ai-anthropic@rc
 ```
 
 ## Documentation

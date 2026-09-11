@@ -4,7 +4,7 @@
  * Define tools with schemas, group them into toolkits, implement handlers,
  * and pass them to `LanguageModel.generateText`.
  */
-import { OpenAiClient, OpenAiLanguageModel, OpenAiTool } from "@clavia/ai-openai"
+import { OpenAiClient, OpenAiLanguageModel, OpenAiTool } from "@tardie/ai-openai"
 import { Config, Context, Effect, Layer, Schema } from "effect"
 import { AiError, LanguageModel, Tool, Toolkit } from "effect/unstable/ai"
 import { FetchHttpClient } from "effect/unstable/http"

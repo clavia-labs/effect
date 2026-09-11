@@ -19,7 +19,7 @@ import type * as Response from "effect/unstable/ai/Response"
  * @since 0.0.1
  */
 export class ResponseFormat extends Context.Service<ResponseFormat, LanguageModel.ProviderOptions["responseFormat"]>()(
-  "@clavia/ai/ResponseFormat"
+  "@tardie/ai/ResponseFormat"
 ) {}
 
 const optionsWithFormat = (options: LanguageModel.ProviderOptions) =>
@@ -31,7 +31,7 @@ const optionsWithFormat = (options: LanguageModel.ProviderOptions) =>
         : options
   )
 
-const DeferredToolCalls = Context.Reference<boolean>("@clavia/ai/DeferredToolCalls", { defaultValue: () => false })
+const DeferredToolCalls = Context.Reference<boolean>("@tardie/ai/DeferredToolCalls", { defaultValue: () => false })
 
 const validateToolCall = (options: LanguageModel.ProviderOptions) =>
   Effect.fnUntraced(function*(part: Response.StreamPartEncoded) {
