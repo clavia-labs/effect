@@ -3,6 +3,7 @@ import type * as Response from "effect/unstable/ai/Response"
 const finishReasonMap: Record<string, Response.FinishReason> = {
   content_filter: "content-filter",
   function_call: "tool-calls",
+  max_output_tokens: "length",
   length: "length",
   stop: "stop",
   tool_calls: "tool-calls"

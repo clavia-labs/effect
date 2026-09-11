@@ -1,4 +1,4 @@
-import { AnthropicLanguageModel } from "@effect/ai-anthropic"
+import { AnthropicLanguageModel } from "@clavia/ai-anthropic"
 import { describe, expect, it } from "tstyche"
 
 declare const acceptsKnownModel: (model: AnthropicLanguageModel.Model) => void

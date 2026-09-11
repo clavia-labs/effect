@@ -8,6 +8,7 @@
  *
  * @since 4.0.0
  */
+import * as ProviderLanguageModel from "@clavia/ai/LanguageModel"
 import * as Context from "effect/Context"
 import * as DateTime from "effect/DateTime"
 import * as Effect from "effect/Effect"
@@ -543,6 +544,8 @@ declare module "effect/unstable/ai/Response" {
      * Provider-specific metadata returned when generation finishes.
      */
     readonly openai?: {
+      readonly usage?: Schema.JsonObject
+
       /**
        * The service tier reported by OpenAI for the response.
        */
@@ -661,7 +664,7 @@ export const make = Effect.fnUntraced(function*({ model, config: providerConfig 
     }
   )
 
-  return yield* LanguageModel.make({
+  return yield* ProviderLanguageModel.make({
     codecTransformer: toCodecOpenAI,
     generateText: Effect.fnUntraced(
       function*(options) {
@@ -1680,7 +1683,7 @@ const makeResponse = Effect.fnUntraced(
       reason: finishReason,
       usage: getUsage(rawResponse.usage),
       response: buildHttpResponseDetails(response),
-      ...toServiceTier(rawResponse.service_tier)
+      ...finishMetadata(rawResponse.service_tier, rawResponse.usage)
     })
 
     return parts
@@ -1766,6 +1769,7 @@ const makeStreamResponse = Effect.fnUntraced(
         tool.name === "OpenAiWebSearchPreview")
     ) as ReturnType<typeof OpenAiTool.WebSearch> | ReturnType<typeof OpenAiTool.WebSearchPreview> | undefined
 
+    let toolParseError: AiError.AiError | undefined
     return stream.pipe(
       Stream.mapEffect(Effect.fnUntraced(function*(event) {
         const parts: Array<Response.StreamPartEncoded> = []
@@ -1802,7 +1806,7 @@ const makeStreamResponse = Effect.fnUntraced(
               ),
               usage: getUsage(event.response.usage),
               response: buildHttpResponseDetails(response),
-              ...toServiceTier(event.response.service_tier)
+              ...finishMetadata(event.response.service_tier, event.response.usage)
             })
             break
           }
@@ -1816,7 +1820,7 @@ const makeStreamResponse = Effect.fnUntraced(
               reason: "error",
               usage: getUsage(event.response.usage),
               response: buildHttpResponseDetails(response),
-              ...toServiceTier(event.response.service_tier)
+              ...finishMetadata(event.response.service_tier, event.response.usage)
             })
             break
           }
@@ -2132,7 +2136,7 @@ const makeStreamResponse = Effect.fnUntraced(
                 const toolName = event.item.name
                 const toolArgs = event.item.arguments
 
-                const toolParams = yield* Effect.try({
+                const parsed = yield* Effect.try({
                   try: () => Tool.unsafeSecureJsonParse(toolArgs),
                   catch: (cause) =>
                     AiError.make({
@@ -2143,8 +2147,14 @@ const makeStreamResponse = Effect.fnUntraced(
                         description: `Failed securely JSON parse tool parameters: ${cause}`
                       })
                     })
-                })
+                }).pipe(Effect.result)
+                if (parsed._tag === "Failure") {
+                  toolParseError ??= parsed.failure
+                  parts.push({ type: "tool-params-end", id: event.item.call_id })
 
+                  break
+                }
+                const toolParams = parsed.success
                 const params = yield* transformToolCallParams(options.tools, toolName, toolParams)
 
                 parts.push({
@@ -2434,7 +2444,7 @@ const makeStreamResponse = Effect.fnUntraced(
             ) {
               hasToolCalls = true
 
-              const toolParams = yield* Effect.try({
+              const parsed = yield* Effect.try({
                 try: () => Tool.unsafeSecureJsonParse(event.arguments),
                 catch: (cause) =>
                   AiError.make({
@@ -2445,8 +2455,14 @@ const makeStreamResponse = Effect.fnUntraced(
                       description: `Failed securely JSON parse tool parameters: ${cause}`
                     })
                   })
-              })
-
+              }).pipe(Effect.result)
+              if (parsed._tag === "Failure") {
+                toolParseError ??= parsed.failure
+                parts.push({ type: "tool-params-end", id: toolCall.id })
+                toolCall.functionCall.emitted = true
+                break
+              }
+              const toolParams = parsed.success
               const params = yield* transformToolCallParams(options.tools, toolCall.name, toolParams)
 
               parts.push({
@@ -2623,9 +2639,11 @@ const makeStreamResponse = Effect.fnUntraced(
           }
         }
 
+        if (parts.some((part) => part.type === "finish" && part.reason === "length")) toolParseError = undefined
         return parts
       })),
-      Stream.flattenIterable
+      Stream.flattenIterable,
+      Stream.concat(Stream.suspend(() => toolParseError === undefined ? Stream.empty : Stream.fail(toolParseError)))
     )
   }
 )
@@ -3194,4 +3212,13 @@ const transformToolCallParams = Effect.fnUntraced(function*<Tools extends Readon
     ),
     Effect.orElseSucceed(() => toolParams)
   )
+})
+
+const finishMetadata = (tier: string | undefined, usage: OpenAiSchema.ResponseUsage | null | undefined) => ({
+  metadata: {
+    openai: {
+      ...toServiceTier(tier)?.metadata.openai,
+      ...(usage == null ? {} : { usage: Schema.decodeUnknownSync(Schema.Record(Schema.String, Schema.Json))(usage) })
+    }
+  }
 })

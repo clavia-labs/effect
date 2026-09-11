@@ -1,17 +1,17 @@
 {
-  "name": "@effect/ai-openai-compat",
-  "version": "4.0.0-rc.113",
+  "name": "@clavia/ai-openai-compat",
+  "version": "4.0.0-rc.113-clavia.0",
   "type": "module",
   "license": "MIT",
   "description": "An OpenAI compat integration for Effect",
-  "homepage": "https://effect.website",
+  "homepage": "https://github.com/clavia-labs/effect",
   "repository": {
     "type": "git",
-    "url": "https://github.com/Effect-TS/effect.git",
+    "url": "https://github.com/clavia-labs/effect.git",
     "directory": "packages/ai/openai-compat"
   },
   "bugs": {
-    "url": "https://github.com/Effect-TS/effect/issues"
+    "url": "https://github.com/clavia-labs/effect/issues"
   },
   "tags": [
     "typescript",
@@ -66,6 +66,9 @@
     "effect": "workspace:^"
   },
   "peerDependencies": {
-    "effect": "workspace:^"
+    "effect": "4.0.0-rc.113"
+  },
+  "dependencies": {
+    "@clavia/ai": "workspace:*"
   }
 }

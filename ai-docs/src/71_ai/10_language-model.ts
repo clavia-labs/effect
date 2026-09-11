@@ -4,8 +4,8 @@
  * Configure a provider once, then use `LanguageModel` for plain text
  * generation, schema-validated object generation, and streaming responses.
  */
-import { AnthropicClient, AnthropicLanguageModel } from "@effect/ai-anthropic"
-import { OpenAiClient, OpenAiLanguageModel } from "@effect/ai-openai"
+import { AnthropicClient, AnthropicLanguageModel } from "@clavia/ai-anthropic"
+import { OpenAiClient, OpenAiLanguageModel } from "@clavia/ai-openai"
 import { Config, Context, Effect, ExecutionPlan, Layer, Schema, Stream } from "effect"
 import { AiError, LanguageModel, Model, type Response } from "effect/unstable/ai"
 import { FetchHttpClient } from "effect/unstable/http"

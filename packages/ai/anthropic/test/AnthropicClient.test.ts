@@ -1,5 +1,5 @@
-import { AnthropicClient } from "@effect/ai-anthropic"
-import * as Errors from "@effect/ai-anthropic/internal/errors"
+import { AnthropicClient } from "@clavia/ai-anthropic"
+import * as Errors from "@clavia/ai-anthropic/internal/errors"
 import { assert, describe, it } from "@effect/vitest"
 import { Context, Effect, Layer, Redacted, type Schema } from "effect"
 import {
