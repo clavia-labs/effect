@@ -11,7 +11,7 @@ const destination = join(root, "artifacts/clavia")
 const providers = ["clavia", "openai", "anthropic", "openai-compat"].map((directory) => {
   const path = join(root, "packages/ai", directory)
   const manifest = JSON.parse(readFileSync(join(path, "package.json"), "utf8"))
-  const name = directory === "clavia" ? "@clavia/ai" : `@clavia/ai-${directory}`
+  const name = directory === "clavia" ? "@tardie/ai" : `@tardie/ai-${directory}`
   assert.equal(manifest.name, name)
   return { path, manifest, file: join(destination, `${name.slice(1).replace("/", "-")}-${manifest.version}.tgz`) }
 })
@@ -19,8 +19,8 @@ const runtimePath = join(root, "packages/effect")
 const runtimeManifest = JSON.parse(readFileSync(join(runtimePath, "package.json"), "utf8"))
 const runtime = {
   path: runtimePath,
-  manifest: { ...runtimeManifest, name: "@clavia/effect", repository: { ...runtimeManifest.repository, url: "https://github.com/clavia-labs/effect.git" } },
-  file: join(destination, `clavia-effect-${runtimeManifest.version}.tgz`)
+  manifest: { ...runtimeManifest, name: "@tardie/effect", repository: { ...runtimeManifest.repository, url: "https://github.com/clavia-labs/effect.git" } },
+  file: join(destination, `tardie-effect-${runtimeManifest.version}.tgz`)
 }
 const targets = [runtime, ...providers]
 const run = (command, args, cwd = root) => execFileSync(command, args, { cwd, stdio: "inherit" })
@@ -29,7 +29,7 @@ assert.ok(["pack", "check", "publish"].includes(action), "Expected pack, check, 
 
 if (action === "pack") {
   mkdirSync(destination, { recursive: true })
-  const staging = realpathSync(mkdtempSync(join(tmpdir(), "clavia-effect-pack-")))
+  const staging = realpathSync(mkdtempSync(join(tmpdir(), "tardie-effect-pack-")))
   run("pnpm", ["pack", "--pack-destination", staging], runtime.path)
   run("tar", ["-xf", join(staging, `effect-${runtime.manifest.version}.tgz`), "-C", staging])
   const packagePath = join(staging, "package")
@@ -58,7 +58,7 @@ for (const target of targets) {
 }
 
 if (action === "check") {
-  const consumer = realpathSync(mkdtempSync(join(tmpdir(), "clavia-ai-consumer-")))
+  const consumer = realpathSync(mkdtempSync(join(tmpdir(), "tardie-ai-consumer-")))
   writeFileSync(join(consumer, "package.json"), JSON.stringify({
     name: "clavia-package-check", private: true, type: "module",
     dependencies: { effect: `file:./${basename(runtime.file)}` }

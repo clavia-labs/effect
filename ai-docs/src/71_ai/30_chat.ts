@@ -4,7 +4,7 @@
  * The AI `Chat` module maintains conversation history automatically. Build
  * AI agents or chat assistants.
  */
-import { OpenAiClient, OpenAiLanguageModel } from "@clavia/ai-openai"
+import { OpenAiClient, OpenAiLanguageModel } from "@tardie/ai-openai"
 import { Config, Context, DateTime, Effect, Layer, Ref, Schema } from "effect"
 import { AiError, Chat, Prompt, Tool, Toolkit } from "effect/unstable/ai"
 import { FetchHttpClient } from "effect/unstable/http"

@@ -106,10 +106,10 @@ export default defineConfig({
           ]
           : undefined
       ),
-      ...project("@clavia/ai", "packages/ai/clavia"),
-      ...project("@clavia/ai-anthropic", "packages/ai/anthropic"),
-      ...project("@clavia/ai-openai", "packages/ai/openai"),
-      ...project("@clavia/ai-openai-compat", "packages/ai/openai-compat"),
+      ...project("@tardie/ai", "packages/ai/clavia"),
+      ...project("@tardie/ai-anthropic", "packages/ai/anthropic"),
+      ...project("@tardie/ai-openai", "packages/ai/openai"),
+      ...project("@tardie/ai-openai-compat", "packages/ai/openai-compat"),
       ...project("@effect/ai-openrouter", "packages/ai/openrouter"),
       ...project("@effect/atom-react", "packages/atom/react", true, {
         test: {

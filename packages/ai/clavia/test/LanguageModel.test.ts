@@ -1,5 +1,5 @@
-import { make, ResponseFormat } from "@clavia/ai/LanguageModel"
 import { assert, it } from "@effect/vitest"
+import { make, ResponseFormat } from "@tardie/ai/LanguageModel"
 import { Effect, Schema, Stream } from "effect"
 import { LanguageModel, Tool, Toolkit } from "effect/unstable/ai"
 

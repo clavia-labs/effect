@@ -152,13 +152,13 @@ importers:
 
   ai-docs:
     dependencies:
-      '@clavia/ai-anthropic':
+      '@tardie/ai-anthropic':
         specifier: workspace:*
         version: link:../packages/ai/anthropic
-      '@clavia/ai-openai':
+      '@tardie/ai-openai':
         specifier: workspace:*
         version: link:../packages/ai/openai
-      '@clavia/ai-openai-compat':
+      '@tardie/ai-openai-compat':
         specifier: workspace:*
         version: link:../packages/ai/openai-compat
       '@effect/ai-openrouter':
@@ -234,7 +234,7 @@ importers:
 
   packages/ai/anthropic:
     dependencies:
-      '@clavia/ai':
+      '@tardie/ai':
         specifier: workspace:*
         version: link:../clavia
     devDependencies:
@@ -252,7 +252,7 @@ importers:
 
   packages/ai/openai:
     dependencies:
-      '@clavia/ai':
+      '@tardie/ai':
         specifier: workspace:*
         version: link:../clavia
     devDependencies:
@@ -262,7 +262,7 @@ importers:
 
   packages/ai/openai-compat:
     dependencies:
-      '@clavia/ai':
+      '@tardie/ai':
         specifier: workspace:*
         version: link:../clavia
     devDependencies:
@@ -956,13 +956,13 @@ importers:
 
   scratchpad:
     dependencies:
-      '@clavia/ai-anthropic':
+      '@tardie/ai-anthropic':
         specifier: workspace:*
         version: link:../packages/ai/anthropic
-      '@clavia/ai-openai':
+      '@tardie/ai-openai':
         specifier: workspace:*
         version: link:../packages/ai/openai
-      '@clavia/ai-openai-compat':
+      '@tardie/ai-openai-compat':
         specifier: workspace:*
         version: link:../packages/ai/openai-compat
       '@effect/ai-openrouter':

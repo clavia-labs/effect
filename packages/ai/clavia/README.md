@@ -5,7 +5,7 @@ This package supplies a shared factory for Clavia provider packages. It uses the
 `make` accepts the same provider hooks as `LanguageModel.make`. `ResponseFormat` supplies a request format through Effect context. Without this service, text generation uses the native text format. Object generation keeps its own schema and decoding.
 
 ```ts
-import { ResponseFormat } from "@clavia/ai/LanguageModel"
+import { ResponseFormat } from "@tardie/ai/LanguageModel"
 import { Schema, Stream } from "effect"
 import { LanguageModel } from "effect/unstable/ai"
 

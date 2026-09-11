@@ -1,5 +1,5 @@
 {
-  "name": "@clavia/ai-openai-compat",
+  "name": "@tardie/ai-openai-compat",
   "version": "4.0.0-rc.113-clavia.0",
   "type": "module",
   "license": "MIT",
@@ -69,6 +69,6 @@
     "effect": "4.0.0-rc.113"
   },
   "dependencies": {
-    "@clavia/ai": "workspace:*"
+    "@tardie/ai": "workspace:*"
   }
 }
