@@ -1,17 +1,31 @@
 # Publish Clavia AI packages
 
-The `clavia/ai-providers` branch publishes four packages from this fork. Upstream `effect` remains a pinned peer dependency.
+The `clavia/ai-providers` branch publishes five packages from this fork. Providers retain a pinned `effect` peer dependency. Install `@clavia/effect` under the `effect` alias to use the upstream declaration fix.
 
 | Directory                   | npm package                | Initial version         |
 | --------------------------- | -------------------------- | ----------------------- |
+| `packages/effect`           | `@clavia/effect`           | `4.0.0-rc.113`          |
 | `packages/ai/clavia`        | `@clavia/ai`               | `0.0.1`                 |
 | `packages/ai/openai`        | `@clavia/ai-openai`        | `4.0.0-rc.113-clavia.0` |
 | `packages/ai/anthropic`     | `@clavia/ai-anthropic`     | `4.0.0-rc.113-clavia.0` |
 | `packages/ai/openai-compat` | `@clavia/ai-openai-compat` | `4.0.0-rc.113-clavia.0` |
 
+## Install packages
+
+After publication, install the runtime alias and the required provider:
+
+```sh
+npm install effect@npm:@clavia/effect@4.0.0-rc.113 @clavia/ai-openai@4.0.0-rc.113-clavia.0
+npm ls effect
+```
+
+All consumers keep their `effect` imports. The dependency tree must resolve to one Effect runtime. The scoped runtime retains version `4.0.0-rc.113` so existing exact peer dependencies accept it. Its package name identifies the fork. The release script changes the archive name and repository metadata; the workspace package remains `effect`.
+
+`@clavia/effect` contains upstream rc.113 plus [the declaration fix in #8162](https://github.com/Effect-TS/effect/pull/8162). The runtime package can return to upstream after a compatible release includes this fix.
+
 ## Check packages
 
-The **Clavia packages** workflow runs on pushes and pull requests to `clavia/ai-providers`. It checks types, lint, and provider tests. It builds four packages and packs them with pnpm. A fresh npm consumer installs those archives with the published Effect runtime, checks declarations, and runs the shared provider tests. The workflow uploads the checked archives as `clavia-packages`.
+The **Clavia packages** workflow runs on pushes and pull requests to `clavia/ai-providers`. It checks types, lint, and provider tests. It builds five packages and packs them with pnpm. A fresh npm consumer installs those archives with the scoped Effect runtime under the `effect` alias, checks declarations, and runs the shared provider tests. The workflow uploads the checked archives as `clavia-packages`.
 
 Run the same package checks locally after building:
 
@@ -28,6 +42,7 @@ npm requires a package to exist before its trusted publisher can be configured. 
 
 ```sh
 npm login
+npm publish artifacts/clavia/clavia-effect-4.0.0-rc.113.tgz --access public --tag next --provenance=false
 npm publish artifacts/clavia/clavia-ai-0.0.1.tgz --access public --tag next --provenance=false
 npm publish artifacts/clavia/clavia-ai-openai-4.0.0-rc.113-clavia.0.tgz --access public --tag next --provenance=false
 npm publish artifacts/clavia/clavia-ai-anthropic-4.0.0-rc.113-clavia.0.tgz --access public --tag next --provenance=false
@@ -46,6 +61,7 @@ Use npm 11.15 or later with an authenticated account. Each package needs this tr
 - Permission: direct publication
 
 ```sh
+npm trust github @clavia/effect --repo clavia-labs/effect --file clavia-publish.yml --env npm --allow-publish
 npm trust github @clavia/ai --repo clavia-labs/effect --file clavia-publish.yml --env npm --allow-publish
 npm trust github @clavia/ai-openai --repo clavia-labs/effect --file clavia-publish.yml --env npm --allow-publish
 npm trust github @clavia/ai-anthropic --repo clavia-labs/effect --file clavia-publish.yml --env npm --allow-publish
@@ -63,4 +79,4 @@ npm can require an interactive two-factor check. The workflow needs no npm token
 
 The publish job runs after all checks pass. It publishes the checked archives in dependency order. An existing version is skipped only when its registry integrity matches the archive. A version with different contents fails the job.
 
-The fork uses this workflow for its four packages. Upstream release automation retains its upstream repository guard.
+The fork uses this workflow for its five packages. Upstream release automation retains its upstream repository guard.

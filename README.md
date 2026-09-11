@@ -8,6 +8,10 @@ Effect is a library for building robust, maintainable, type-safe, and production
 
 > **Effect V4 is currently a release candidate.** The `main` branch contains v4 development.
 
+## Clavia packages
+
+This fork publishes AI providers and a scoped runtime with upstream declaration fix #8162. See [Clavia package installation and publishing](CLAVIA_PUBLISHING.md).
+
 ## Install V4 RC
 
 ```sh

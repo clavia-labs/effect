@@ -2,7 +2,7 @@
 
 Base: `effect@4.0.0-rc.113`. Publishing branch: `clavia/ai-providers`.
 
-This fork carries provider changes for Tardigrade. The Effect runtime source is unchanged. The provider packages use the `@clavia` scope. `@clavia/ai` supplies their shared factory wrapper.
+This fork carries provider changes for Tardigrade. The Effect runtime includes upstream declaration fix #8162. The provider packages use the `@clavia` scope. `@clavia/ai` supplies their shared factory wrapper.
 
 ## Ported changes
 
@@ -53,12 +53,18 @@ The publishing branch uses rc.113. Tardigrade still requires an Effect dependenc
 
 ### Validation result
 
-The evaluation passes 230 provider tests, workspace typechecking, lint, and all four package builds. The packed packages pass 28 runtime tests against the published rc.113 runtime. The runtime dependency tree uses upstream Effect.
+The evaluation passes 230 provider tests, workspace typechecking, lint, and all four package builds. The packed packages pass 28 runtime tests against the published rc.113 runtime. Those evaluation checks used upstream Effect. The scoped release checks use the fixed runtime under the `effect` alias.
 
 The strict packed-consumer declaration check fails in upstream `effect` declarations. Missing names include `EffectTypeId`, `Contextual`, and `AnnotationSchemaConstraint`. A separate file importing only `effect/Effect` reproduces the missing `AnnotationSchemaConstraint` errors without importing Clavia packages.
 
-[Upstream fix 8162](https://github.com/Effect-TS/effect/pull/8162) removes the dangling internal declaration references. It is after the rc.113 release tag. Keep the strict consumer check enabled and wait for an upstream release containing this fix before publishing the rc.113-based evaluation.
+[Upstream fix 8162](https://github.com/Effect-TS/effect/pull/8162) removes the dangling internal declaration references. It is after the rc.113 release tag. The fork includes this commit and publishes the fixed runtime as `@clavia/effect`. The strict consumer check remains enabled.
 
 The compatible provider's metadata patch also includes the new `promptCacheBreakpoint` type to match the shared OpenAI declaration. After this correction, the strict consumer check reports only upstream Effect errors.
 
 Evidence logs are `/tmp/effect-rc113-final-tests.log`, `/tmp/effect-rc113-packed-runtime.log`, `/tmp/effect-rc113-consumer-final.log`, and `/tmp/effect-rc113-baseline-types.log`. The evaluation is promoted to the publishing branch. No npm packages have been published.
+
+## Runtime declaration fix
+
+Upstream commit `716e0c00942b42d36631b3114b1deb9a4a944ce3` removes dangling internal declaration references and adds a declaration check. The commit is applied intact. The scoped runtime uses the `effect` alias, and the release check imports every public non-wildcard runtime entrypoint with `skipLibCheck: false`.
+
+Validation passes: 230 provider tests, 28 packed consumer tests, workspace typechecking, lint, and five package builds. The strict packed consumer check passes for all public non-wildcard runtime entrypoints. `npm ls effect` shows one scoped runtime shared by all providers and `@effect/vitest`.
