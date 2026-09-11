@@ -44,7 +44,7 @@ jobs:
       - name: Test providers
         run: pnpm test --run packages/ai/clavia/test/LanguageModel.test.ts packages/ai/clavia/test/ProviderStreams.test.ts packages/ai/openai/test packages/ai/anthropic/test packages/ai/openai-compat/test
       - name: Build packages
-        run: pnpm -r --filter @clavia/ai --filter @clavia/ai-openai --filter @clavia/ai-anthropic --filter @clavia/ai-openai-compat build
+        run: pnpm -r --filter effect --filter @clavia/ai --filter @clavia/ai-openai --filter @clavia/ai-anthropic --filter @clavia/ai-openai-compat build
       - run: node scripts/clavia-release.mjs pack
       - run: node scripts/clavia-release.mjs check
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
