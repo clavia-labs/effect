@@ -13,7 +13,7 @@ const targets = ["clavia", "openai", "anthropic", "openai-compat"].map((director
   const manifest = JSON.parse(readFileSync(join(path, "package.json"), "utf8"))
   const name = directory === "clavia" ? "@clavia/ai" : `@clavia/ai-${directory}`
   assert.equal(manifest.name, name)
-  assert.equal(manifest.peerDependencies.effect, "4.0.0-rc.110")
+  assert.equal(manifest.peerDependencies.effect, "4.0.0-rc.113")
   return { path, manifest, file: join(destination, `${name.slice(1).replace("/", "-")}-${manifest.version}.tgz`) }
 })
 const run = (command, args, cwd = root) => execFileSync(command, args, { cwd, stdio: "inherit" })
@@ -29,7 +29,7 @@ for (const target of targets) {
   const manifest = JSON.parse(execFileSync("tar", ["-xOf", target.file, "package/package.json"], { encoding: "utf8" }))
   assert.equal(manifest.name, target.manifest.name)
   assert.equal(manifest.version, target.manifest.version)
-  assert.equal(manifest.peerDependencies.effect, "4.0.0-rc.110")
+  assert.equal(manifest.peerDependencies.effect, "4.0.0-rc.113")
   assert.equal(manifest.repository.url, "https://github.com/clavia-labs/effect.git")
   for (const [name, version] of Object.entries(manifest.dependencies ?? {})) {
     assert.ok(!name.startsWith("@effect/ai-"), `Unexpected upstream provider dependency: ${name}`)
@@ -44,7 +44,7 @@ if (action === "check") {
   const consumer = realpathSync(mkdtempSync(join(tmpdir(), "clavia-ai-consumer-")))
   writeFileSync(join(consumer, "package.json"), JSON.stringify({ name: "clavia-package-check", private: true, type: "module" }))
   for (const target of targets) cpSync(target.file, join(consumer, basename(target.file)))
-  run("npm", ["install", "--ignore-scripts", "--no-audit", "--no-fund", ...targets.map((target) => `./${basename(target.file)}`), "effect@4.0.0-rc.110", "@effect/vitest@4.0.0-rc.110", "vitest@4.1.10", "typescript@7.0.2", "@types/node@24"], consumer)
+  run("npm", ["install", "--ignore-scripts", "--no-audit", "--no-fund", ...targets.map((target) => `./${basename(target.file)}`), "effect@4.0.0-rc.113", "@effect/vitest@4.0.0-rc.113", "vitest@5.0.0", "typescript@7.0.2", "@types/node@24"], consumer)
   cpSync(join(root, "packages/ai/clavia/test"), join(consumer, "test"), { recursive: true })
   writeFileSync(join(consumer, "tsconfig.json"), JSON.stringify({ compilerOptions: { target: "ESNext", module: "NodeNext", moduleResolution: "NodeNext", strict: true, exactOptionalPropertyTypes: true, skipLibCheck: false, allowImportingTsExtensions: true, noEmit: true, types: ["node"] }, include: ["test/**/*.ts"] }))
   run("npm", ["exec", "--no", "--", "tsc", "-p", "tsconfig.json"], consumer)

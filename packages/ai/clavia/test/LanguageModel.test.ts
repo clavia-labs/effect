@@ -1,7 +1,7 @@
 import { make, ResponseFormat } from "@clavia/ai/LanguageModel"
 import { assert, it } from "@effect/vitest"
 import { Effect, Schema, Stream } from "effect"
-import { LanguageModel } from "effect/unstable/ai"
+import { LanguageModel, Tool, Toolkit } from "effect/unstable/ai"
 
 const format = { type: "json", objectName: "answer", schema: Schema.Struct({ answer: Schema.String }) } as const
 
@@ -53,4 +53,45 @@ it.effect("applies text formats while object generation retains its schema and d
       )
     )
     assert.strictEqual(invalid._tag, "Failure")
+  }))
+
+it.effect("keeps managed and deferred validation isolated without executing deferred calls", () =>
+  Effect.gen(function*() {
+    const executed: Array<string> = []
+    const toolkit = Toolkit.make(
+      Tool.make("read", {
+        parameters: Schema.Struct({ path: Schema.String }),
+        success: Schema.String,
+        failureMode: "return"
+      })
+    )
+    const handlers = toolkit.toLayer({
+      read: (params) =>
+        Effect.sync(() => {
+          executed.push(params.path)
+          return "ok"
+        })
+    })
+    const model = yield* make({
+      generateText: () => Effect.succeed([]),
+      streamText: () =>
+        Stream.fromIterable(
+          ["a", "b", "c"].map((id) =>
+            ({ type: "tool-call", id, name: "read", params: { path: id === "b" ? 123 : id } }) as const
+          )
+        ).pipe(Stream.tap(() => Effect.yieldNow))
+    })
+    const [deferred, managed] = yield* Effect.all([
+      model.streamText({ prompt: "deferred", toolkit, disableToolCallResolution: true }).pipe(Stream.runCollect),
+      model.streamText({ prompt: "managed", toolkit }).pipe(Stream.runCollect)
+    ], { concurrency: "unbounded" }).pipe(Effect.provide(handlers))
+    assert.deepStrictEqual(executed.sort(), ["a", "c"])
+    assert.deepStrictEqual(deferred.filter((part) => part.type === "tool-call").map((part) => part.id), ["a", "c"])
+    assert.strictEqual(deferred.filter((part) => part.type === "error").length, 1)
+    assert.strictEqual(deferred.filter((part) => part.type === "tool-result").length, 0)
+    assert.strictEqual(managed.filter((part) => part.type === "error").length, 0)
+    assert.deepStrictEqual(
+      managed.filter((part) => part.type === "tool-result").map((part) => [part.id, part.isFailure]).sort(),
+      [["a", false], ["b", true], ["c", false]]
+    )
   }))

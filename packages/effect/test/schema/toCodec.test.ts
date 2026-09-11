@@ -376,6 +376,21 @@ describe("Serializers", () => {
         })
 
         describe("checks", () => {
+          it("runs source checks once per direction", () => {
+            let executions = 0
+            const codec = Schema.toCodecJson(Schema.Number.check(Schema.makeFilter<number>(() => {
+              executions++
+              return undefined
+            })))
+
+            Schema.decodeUnknownSync(codec)(1)
+            strictEqual(executions, 1)
+
+            executions = 0
+            Schema.encodeUnknownSync(codec)(1)
+            strictEqual(executions, 1)
+          })
+
           it("Finite", async () => {
             const schema = Schema.Finite
             const asserts = new TestSchema.Asserts(Schema.toCodecJson(schema))
@@ -495,6 +510,26 @@ describe("Serializers", () => {
 
         const decoding = asserts.decoding()
         await decoding.succeed("Symbol(a)", Symbol.for("a"))
+        await decoding.fail("Symbol(b)", `Expected "Symbol(a)"`)
+      })
+
+      it("Symbol with a multiline registry key", async () => {
+        const symbol = Symbol.for("a\nb")
+        const asserts = new TestSchema.Asserts(Schema.toCodecJson(Schema.Symbol))
+
+        await asserts.encoding().succeed(symbol, "Symbol(a\nb)")
+        await asserts.decoding().succeed("Symbol(a\nb)", symbol)
+      })
+
+      it("local UniqueSymbol", async () => {
+        const symbol = Symbol("a")
+        const asserts = new TestSchema.Asserts(Schema.toCodecJson(Schema.UniqueSymbol(symbol)))
+
+        const encoding = asserts.encoding()
+        await encoding.fail(symbol, "cannot serialize to string, Symbol is not registered")
+
+        const decoding = asserts.decoding()
+        await decoding.fail("Symbol(a)", "Expected never")
       })
 
       it("BigInt", async () => {
@@ -2038,7 +2073,7 @@ Expected "Infinity" | "-Infinity" | "NaN"`
 
         const decoding = asserts.decoding()
         await decoding.succeed("Symbol(a)", Symbol.for("a"))
-        await decoding.fail("a", `Expected a string representing a symbol`)
+        await decoding.fail("a", `Expected "Symbol(a)"`)
       })
 
       it("BigInt", async () => {
@@ -2842,7 +2877,7 @@ Expected "Infinity" | "-Infinity" | "NaN"`
     async function assertXmlFailure<T, E, RD>(schema: Schema.Codec<T, E, RD>, value: T, message: string) {
       const serializer = Schema.toEncoderXml(Schema.toCodecStringTree(schema))
       const r = await serializer(value).pipe(
-        Effect.mapError((err) => formatIssue(err.issue)),
+        Effect.mapError(formatIssue),
         Effect.result,
         Effect.runPromise
       )

@@ -1,6 +1,6 @@
 {
   "name": "@clavia/ai-openai",
-  "version": "4.0.0-rc.110-clavia.0",
+  "version": "4.0.0-rc.113-clavia.0",
   "type": "module",
   "license": "MIT",
   "description": "An OpenAI provider integration for Effect AI SDK",
@@ -64,7 +64,7 @@
     "effect": "workspace:^"
   },
   "peerDependencies": {
-    "effect": "4.0.0-rc.110"
+    "effect": "4.0.0-rc.113"
   },
   "dependencies": {
     "@clavia/ai": "workspace:*"

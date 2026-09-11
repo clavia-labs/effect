@@ -584,12 +584,12 @@ const Proto: Omit<
   ContextImpl<never>,
   "cacheRoot" | "base" | "overlay" | "depth" | "_flat" | "baseHits"
 > = {
+  get mapUnsafe() {
+    return flatten(this as any as ContextImpl<any>)
+  },
   ...PipeInspectableProto,
   [TypeId]: {
     _Services: (_: never) => _
-  },
-  get mapUnsafe() {
-    return flatten(this as any as ContextImpl<any>)
   },
   toJSON(this: Context<never>) {
     return {
@@ -1031,6 +1031,7 @@ export const getUnsafe: {
  * @since 2.0.0
  */
 export const get: {
+  <I, S>(service: Key<I, S>): (self: Context<I>) => S
   <Services, I extends Services, S>(service: Key<I, S>): (self: Context<Services>) => S
   <Services, I extends Services, S>(self: Context<Services>, service: Key<I, S>): S
 } = getUnsafe

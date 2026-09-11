@@ -378,6 +378,11 @@ describe("Schema", () => {
       >()
     })
 
+    it("JsonObject", () => {
+      const schema = Schema.JsonObject
+      expect(schema).type.toBe<Schema.$Record<Schema.String, Schema.Codec<Schema.Json>>>()
+    })
+
     it("NonEmptyArray", () => {
       const schema = Schema.NonEmptyArray(Schema.FiniteFromString.pipe(Schema.brand("a")))
       expect(schema.make).type.toBe<
@@ -522,6 +527,13 @@ describe("Schema", () => {
       expect(schema).type.toBe<Schema.toCodecStringTree<Schema.FiniteFromString>>()
       expect(schema.schema).type.toBe<Schema.FiniteFromString>()
       expect(schema.annotate({})).type.toBe<Schema.toCodecStringTree<Schema.FiniteFromString>>()
+    })
+  })
+
+  describe("toEncoderXml", () => {
+    it("returns SchemaIssue.Issue in the error channel", () => {
+      const encode = Schema.toEncoderXml(Schema.toCodecStringTree(Schema.FiniteFromString))
+      expect(encode).type.toBe<(value: number) => Effect.Effect<string, SchemaIssue.Issue>>()
     })
   })
 
@@ -854,6 +866,24 @@ describe("Schema", () => {
       .type.toBe<Schema.Codec<readonly ["a", number & Brand.Brand<"MyBrand">], `a${number}`>>()
     expect(Schema.revealCodec(Schema.TemplateLiteralParser(["a", Schema.Union([Schema.Number, Schema.String])])))
       .type.toBe<Schema.Codec<readonly ["a", string | number], `a${string}` | `a${number}`>>()
+  })
+
+  it("TemplateLiteralParser propagates decoding and encoding services separately", () => {
+    const first = hole<Schema.Codec<number, string, "DecodeFirst", "EncodeFirst">>()
+    const second = hole<Schema.Codec<boolean, 0 | 1, "DecodeSecond", "EncodeSecond">>()
+    const schema = Schema.TemplateLiteralParser(["value:", first, ":", second])
+
+    expect(schema.DecodingServices).type.toBe<"DecodeFirst" | "DecodeSecond">()
+    expect(schema.EncodingServices).type.toBe<"EncodeFirst" | "EncodeSecond">()
+    expect(Schema.decodeEffect(schema)).type.toBe<
+      (
+        input: `value:${string}:0` | `value:${string}:1`,
+        options?: SchemaAST.ParseOptions
+      ) => Effect.Effect<readonly ["value:", number, ":", boolean], Schema.SchemaError, "DecodeFirst" | "DecodeSecond">
+    >()
+    expect(Schema.encodeEffect(schema)(["value:", 1, ":", true])).type.toBe<
+      Effect.Effect<`value:${string}:0` | `value:${string}:1`, Schema.SchemaError, "EncodeFirst" | "EncodeSecond">
+    >()
   })
 
   describe("flip", () => {

@@ -21,7 +21,6 @@ import * as Predicate from "effect/Predicate"
 import * as Redactable from "effect/Redactable"
 import * as Schema from "effect/Schema"
 import * as SchemaAST from "effect/SchemaAST"
-import * as SchemaIssue from "effect/SchemaIssue"
 import * as Stream from "effect/Stream"
 import type { Span } from "effect/Tracer"
 import type { Mutable, Simplify } from "effect/Types"
@@ -40,8 +39,6 @@ import { addGenAIAnnotations } from "./AnthropicTelemetry.ts"
 import type { AnthropicTool } from "./AnthropicTool.ts"
 import type * as Generated from "./Generated.ts"
 import * as InternalUtilities from "./internal/utilities.ts"
-
-const formatIssue = SchemaIssue.makeFormatterDefault()
 
 /**
  * Known Anthropic Claude model identifiers exposed by the generated Anthropic schema.
@@ -664,7 +661,7 @@ export const model = (
  *
  * **When to use**
  *
- * Use when you need to construct a `LanguageModel.Service` value backed by
+ * Use when you need to construct a `LanguageModel` value backed by
  * `AnthropicClient` inside an Effect.
  *
  * **Details**
@@ -682,7 +679,7 @@ export const model = (
 export const make = Effect.fnUntraced(function*({ model, config: providerConfig }: {
   readonly model: (string & {}) | Model
   readonly config?: Omit<typeof Config.Service, "model"> | undefined
-}): Effect.fn.Return<LanguageModel.Service, never, AnthropicClient> {
+}): Effect.fn.Return<LanguageModel.LanguageModel, never, AnthropicClient> {
   const client = yield* AnthropicClient
 
   const makeConfig: Effect.Effect<typeof Config.Service & { readonly model: string }> = Effect.contextWith((services) =>
@@ -714,8 +711,13 @@ export const make = Effect.fnUntraced(function*({ model, config: providerConfig 
       if (betas.size > 0) {
         params["anthropic-beta"] = Array.from(betas).join(",")
       }
-      const { disableParallelToolCalls: _, output_config, structuredOutputs: _structuredOutputs, ...requestConfig } =
-        config
+      const {
+        disableParallelToolCalls: _,
+        output_config,
+        strictJsonSchema: _strictJsonSchema,
+        structuredOutputs: _structuredOutputs,
+        ...requestConfig
+      } = config
       const payload: Mutable<typeof Generated.BetaCreateMessageParams.Encoded> = {
         ...requestConfig,
         max_tokens: requestConfig.max_tokens ?? capabilities.maxOutputTokens,
@@ -893,7 +895,13 @@ const prepareMessages = Effect.fnUntraced(
 
                         const source = isUrlData(part.data)
                           ? { type: "url", url: getUrlString(part.data) } as const
-                          : { type: "base64", media_type: mediaType, data: Encoding.encodeBase64(part.data) } as const
+                          : {
+                            type: "base64",
+                            media_type: mediaType,
+                            data: typeof part.data === "string"
+                              ? part.data.replace(/^data:[^;]+;base64,/, "")
+                              : Encoding.encodeBase64(part.data)
+                          } as const
 
                         content.push({ type: "image", source, cache_control: cacheControl })
                       } else if (part.mediaType === "application/pdf" || part.mediaType === "text/plain") {
@@ -966,7 +974,7 @@ const prepareMessages = Effect.fnUntraced(
                   content.push({
                     type: "tool_result",
                     tool_use_id: part.id,
-                    content: JSON.stringify(part.result),
+                    content: typeof part.result === "string" ? part.result : JSON.stringify(part.result),
                     is_error: part.isFailure,
                     cache_control: cacheControl
                   })
@@ -1291,10 +1299,6 @@ const prepareTools = Effect.fnUntraced(
     readonly tools: ReadonlyArray<AnthropicUserDefinedTool | AnthropicProviderDefinedTool> | undefined
     readonly toolChoice: typeof Generated.BetaToolChoice.Encoded | undefined
   }, AiError.AiError> {
-    if (options.tools.length === 0 || options.toolChoice === "none") {
-      return { tools: undefined, toolChoice: undefined }
-    }
-
     // Return a JSON response tool when using non-native structured outputs
     if (options.responseFormat.type === "json" && !capabilities.supportsStructuredOutput) {
       const input_schema = yield* tryJsonSchema(options.responseFormat.schema, "prepareTools")
@@ -1312,6 +1316,10 @@ const prepareTools = Effect.fnUntraced(
           disable_parallel_tool_use: true
         }
       }
+    }
+
+    if (options.tools.length === 0 || options.toolChoice === "none") {
+      return { tools: undefined, toolChoice: undefined }
     }
 
     const userTools: Array<AnthropicUserDefinedTool> = []
@@ -1568,6 +1576,9 @@ const makeResponse = Effect.fnUntraced(
     const mcpToolCalls: Map<string, Response.ToolCallPartEncoded> = new Map()
     const serverToolCalls: Map<string, string> = new Map()
     const citableDocuments = extractCitableDocuments(options.prompt)
+    const responseFormat = options.responseFormat
+    const hasStructuredOutputTool = responseFormat.type === "json" &&
+      rawResponse.content.some((part) => part.type === "tool_use" && part.name === responseFormat.objectName)
 
     parts.push({
       type: "response-metadata",
@@ -1580,10 +1591,12 @@ const makeResponse = Effect.fnUntraced(
     for (const part of rawResponse.content) {
       switch (part.type) {
         case "text": {
-          // Text parts are added for both text and json response formats.
-          // For native structured output (json_schema), the JSON comes directly
-          // in a text content block. For tool-based structured output, text may
-          // also be present alongside the tool_use.
+          // The response tool supplies the JSON payload. Accompanying prose
+          // must not be concatenated with it during structured output decoding.
+          if (hasStructuredOutputTool) {
+            break
+          }
+
           parts.push({
             type: "text",
             text: part.text
@@ -1630,7 +1643,7 @@ const makeResponse = Effect.fnUntraced(
         case "tool_use": {
           // When the `"json"` response format is requested, the JSON we need
           // is returned by a tool call injected into the request
-          if (options.responseFormat.type === "json") {
+          if (responseFormat.type === "json" && part.name === responseFormat.objectName) {
             parts.push({
               type: "text",
               text: JSON.stringify(part.input)
@@ -2685,7 +2698,6 @@ const makeStreamResponse = Effect.fnUntraced(
                         method: "makeStreamResponse",
                         reason: new AiError.ToolParameterValidationError({
                           toolName: contentBlock.name,
-                          toolParams: {},
                           description: `Failed to securely JSON parse tool parameters: ${cause}`
                         })
                       })
@@ -2695,24 +2707,9 @@ const makeStreamResponse = Effect.fnUntraced(
                     break
                   }
                   const rawParams = parsed.success
-                  const validation = contentBlock.providerExecuted === true
-                    ? { params: rawParams }
-                    : yield* validateStreamTool(options.tools, contentBlock.name, rawParams)
-                  if ("error" in validation) {
-                    parts.push({
-                      type: "error",
-                      error: {
-                        _tag: "ToolCallValidationError",
-                        id: contentBlock.id,
-                        name: contentBlock.name,
-                        params: rawParams,
-                        cause: validation.error,
-                        providerMetadata: {}
-                      }
-                    })
-                    break
-                  }
-                  const params = validation.params
+                  const params = contentBlock.providerExecuted === true
+                    ? rawParams
+                    : yield* transformToolCallParams(options.tools, contentBlock.name, rawParams)
 
                   parts.push({
                     type: "tool-call",
@@ -3137,48 +3134,15 @@ const transformToolCallParams = Effect.fnUntraced(function*<Tools extends Readon
     })
   }
 
-  if (Tool.isDynamic(tool) && tool.jsonSchema !== undefined) {
-    return yield* Schema.decodeUnknownEffect(Schema.toEncoded(tool.parametersSchema))(toolParams).pipe(
-      Effect.mapError((error) =>
-        AiError.make({
-          module: "AnthropicLanguageModel",
-          method: "makeResponse",
-          reason: new AiError.ToolParameterValidationError({
-            toolName,
-            toolParams,
-            description: formatIssue(error.issue)
-          })
-        })
-      )
-    )
-  }
   const { codec } = yield* tryCodecTransform(tool.parametersSchema, "makeResponse")
 
-  const transform = Schema.decodeEffect(codec)
-
+  // Normalize valid parameters; leave invalid ones for Toolkit.
   return yield* (
-    transform(toolParams) as Effect.Effect<unknown, Schema.SchemaError>
-  ).pipe(Effect.mapError((error) =>
-    AiError.make({
-      module: "AnthropicLanguageModel",
-      method: "makeResponse",
-      reason: new AiError.ToolParameterValidationError({
-        toolName,
-        toolParams,
-        description: formatIssue(error.issue)
-      })
-    })
-  ))
-})
-
-// validateStreamTool returns parameter failures only for tools that opt into return mode.
-const validateStreamTool = (tools: ReadonlyArray<Tool.Any>, name: string, params: unknown) =>
-  transformToolCallParams(tools, name, params).pipe(
-    Effect.map((params) => ({ params })),
-    Effect.catch((error) =>
-      error.reason._tag === "ToolParameterValidationError" &&
-        tools.some((tool) => tool.name === name && tool.failureMode === "return")
-        ? Effect.succeed({ error: Schema.encodeSync(AiError.AiError)(error) })
-        : Effect.fail(error)
-    )
+    Schema.decodeEffect(codec)(toolParams) as Effect.Effect<unknown, Schema.SchemaError>
+  ).pipe(
+    Effect.flatMap((decoded) =>
+      Schema.encodeUnknownEffect(tool.parametersSchema)(decoded) as Effect.Effect<unknown, Schema.SchemaError>
+    ),
+    Effect.orElseSucceed(() => toolParams)
   )
+})

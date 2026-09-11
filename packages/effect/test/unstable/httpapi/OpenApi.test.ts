@@ -70,6 +70,24 @@ const makeSecurityApi = (
   )
 
 describe("OpenApi", () => {
+  it("preserves parameter schemas when an endpoint transform reorders parameters", () => {
+    const Api = HttpApi.make("Api").add(
+      HttpApiGroup.make("test").add(
+        HttpApiEndpoint.get("list", "/list", {
+          query: { first: Schema.Literal("first"), second: Schema.Literal("second") }
+        }).annotate(OpenApi.Transform, (operation: Record<string, any>) => ({
+          ...operation,
+          parameters: [...operation.parameters].reverse()
+        }))
+      )
+    )
+
+    assert.deepStrictEqual(OpenApi.fromApi(Api).paths["/list"]?.get?.parameters, [
+      { name: "second", in: "query", required: true, schema: { type: "string", enum: ["second"] } },
+      { name: "first", in: "query", required: true, schema: { type: "string", enum: ["first"] } }
+    ])
+  })
+
   it("returns fresh spec instances when using the cache", () => {
     const Api = HttpApi.make("Api").add(
       HttpApiGroup.make("test").add(
@@ -95,6 +113,22 @@ describe("OpenApi", () => {
 
     assert.strictEqual(third.info.title, "Api")
     assert.isUndefined(third.paths["/resource"]!.get!.summary)
+  })
+
+  it("preserves JSON.rawJSON values when cloning cached specs", () => {
+    const rawJson = (JSON as unknown as { rawJSON: (value: string) => unknown }).rawJSON("9223372036854775807")
+    const Api = HttpApi.make("Api").annotate(OpenApi.Transform, (spec) => ({
+      ...spec,
+      info: {
+        ...spec.info,
+        "x-raw": rawJson
+      }
+    }))
+
+    const expected = `{"title":"Api","version":"0.0.1","x-raw":9223372036854775807}`
+
+    assert.strictEqual(JSON.stringify(OpenApi.fromApi(Api).info), expected)
+    assert.strictEqual(JSON.stringify(OpenApi.fromApi(Api).info), expected)
   })
 
   it("isolates the cached spec from external override mutations", () => {
@@ -266,7 +300,7 @@ describe("OpenApi", () => {
       spec.paths["/encoded"]?.get?.responses[404]?.headers?.["x-error-id"]?.schema,
       {
         type: "string",
-        allOf: [{ pattern: "^[+-]?\\d*\\.?\\d+(?:[Ee][+-]?\\d+)?$" }]
+        pattern: "^[+-]?\\d*\\.?\\d+(?:[Ee][+-]?\\d+)?$"
       }
     )
     assert.deepStrictEqual(
@@ -293,9 +327,168 @@ describe("OpenApi", () => {
       "x-retry-after": {
         schema: {
           type: "string",
-          allOf: [{ pattern: "^[+-]?\\d*\\.?\\d+(?:[Ee][+-]?\\d+)?$" }]
+          pattern: "^[+-]?\\d*\\.?\\d+(?:[Ee][+-]?\\d+)?$"
         },
         required: true
+      }
+    })
+  })
+
+  it("collapses a middleware error that repeats an endpoint error", () => {
+    const ApiError = Schema.Struct({ code: Schema.String }).annotate({ identifier: "ApiError" })
+
+    class SameError extends HttpApiMiddleware.Service<SameError>()("SameError", {
+      error: ApiError
+    }) {}
+
+    const Api = HttpApi.make("Api").add(
+      HttpApiGroup.make("test").add(
+        HttpApiEndpoint.get("error", "/error", { error: ApiError })
+      )
+    ).middleware(SameError)
+
+    const spec = OpenApi.fromApi(Api)
+
+    assert.deepStrictEqual(spec.paths["/error"]?.get?.responses[500]?.content, {
+      "application/json": {
+        schema: { $ref: "#/components/schemas/ApiError" }
+      }
+    })
+  })
+
+  it("collapses a repeated middleware error when the endpoint disables codecs", () => {
+    const ApiError = Schema.Struct({ code: Schema.String }).annotate({ identifier: "ApiError" })
+
+    class SameError extends HttpApiMiddleware.Service<SameError>()("SameErrorNoCodecs", {
+      error: ApiError
+    }) {}
+
+    const Api = HttpApi.make("Api").add(
+      HttpApiGroup.make("test").add(
+        HttpApiEndpoint.get("error", "/error", {
+          disableCodecs: true,
+          error: ApiError
+        })
+      )
+    ).middleware(SameError)
+
+    const spec = OpenApi.fromApi(Api)
+
+    assert.deepStrictEqual(spec.paths["/error"]?.get?.responses[500]?.content, {
+      "application/json": {
+        schema: { $ref: "#/components/schemas/ApiError" }
+      }
+    })
+  })
+
+  it("resolves one shared middleware error per endpoint codec mode", () => {
+    const ApiError = Schema.Struct({ code: Schema.String }).annotate({ identifier: "ApiError" })
+
+    class SharedError extends HttpApiMiddleware.Service<SharedError>()("SharedError", {
+      error: ApiError
+    }) {}
+
+    // The same middleware instance is attached to both endpoints, so its single
+    // error set has to be resolved against each endpoint's `disableCodecs`.
+    const Api = HttpApi.make("Api").add(
+      HttpApiGroup.make("test")
+        .add(HttpApiEndpoint.get("codecs", "/codecs", { error: ApiError }))
+        .add(HttpApiEndpoint.get("raw", "/raw", { disableCodecs: true, error: ApiError }))
+    ).middleware(SharedError)
+
+    const spec = OpenApi.fromApi(Api)
+
+    assert.deepStrictEqual(spec.paths["/codecs"]?.get?.responses[500]?.content, {
+      "application/json": {
+        schema: { $ref: "#/components/schemas/ApiError" }
+      }
+    })
+    assert.deepStrictEqual(spec.paths["/raw"]?.get?.responses[500]?.content, {
+      "application/json": {
+        schema: { $ref: "#/components/schemas/ApiError" }
+      }
+    })
+  })
+
+  it("emits an anyOf for a middleware error that differs from the endpoint error", () => {
+    const EndpointError = Schema.Struct({ code: Schema.String }).annotate({ identifier: "EndpointError" })
+    const MiddlewareError = Schema.Struct({ reason: Schema.String }).annotate({ identifier: "MiddlewareError" })
+
+    class OtherError extends HttpApiMiddleware.Service<OtherError>()("OtherError", {
+      error: MiddlewareError
+    }) {}
+
+    const Api = HttpApi.make("Api").add(
+      HttpApiGroup.make("test").add(
+        HttpApiEndpoint.get("error", "/error", { error: EndpointError })
+      )
+    ).middleware(OtherError)
+
+    const spec = OpenApi.fromApi(Api)
+
+    assert.deepStrictEqual(spec.paths["/error"]?.get?.responses[500]?.content, {
+      "application/json": {
+        schema: {
+          anyOf: [
+            { $ref: "#/components/schemas/EndpointError" },
+            { $ref: "#/components/schemas/MiddlewareError" }
+          ]
+        }
+      }
+    })
+  })
+
+  it("emits an anyOf for two different endpoint errors sharing a status", () => {
+    const FirstError = Schema.Struct({ code: Schema.String }).annotate({ identifier: "FirstError" })
+    const SecondError = Schema.Struct({ reason: Schema.String }).annotate({ identifier: "SecondError" })
+
+    const Api = HttpApi.make("Api").add(
+      HttpApiGroup.make("test").add(
+        HttpApiEndpoint.get("error", "/error", { error: [FirstError, SecondError] })
+      )
+    )
+
+    const spec = OpenApi.fromApi(Api)
+
+    assert.deepStrictEqual(spec.paths["/error"]?.get?.responses[500]?.content, {
+      "application/json": {
+        schema: {
+          anyOf: [
+            { $ref: "#/components/schemas/FirstError" },
+            { $ref: "#/components/schemas/SecondError" }
+          ]
+        }
+      }
+    })
+  })
+
+  it("documents a middleware error for a status the endpoint does not declare", () => {
+    const Unauthorized = Schema.Struct({ message: Schema.String }).pipe(HttpApiSchema.status(401)).annotate({
+      identifier: "Unauthorized"
+    })
+
+    class Auth extends HttpApiMiddleware.Service<Auth>()("Auth", {
+      error: Unauthorized
+    }) {}
+
+    const Api = HttpApi.make("Api").add(
+      HttpApiGroup.make("test").add(
+        HttpApiEndpoint.get("error", "/error", {
+          error: Schema.Struct({ code: Schema.String }).annotate({ identifier: "ServerError" })
+        })
+      )
+    ).middleware(Auth)
+
+    const spec = OpenApi.fromApi(Api)
+
+    assert.deepStrictEqual(spec.paths["/error"]?.get?.responses[401]?.content, {
+      "application/json": {
+        schema: { $ref: "#/components/schemas/Unauthorized" }
+      }
+    })
+    assert.deepStrictEqual(spec.paths["/error"]?.get?.responses[500]?.content, {
+      "application/json": {
+        schema: { $ref: "#/components/schemas/ServerError" }
       }
     })
   })
@@ -317,7 +510,7 @@ describe("OpenApi", () => {
       "x-stream-id": {
         schema: {
           type: "string",
-          allOf: [{ pattern: "^[+-]?\\d*\\.?\\d+(?:[Ee][+-]?\\d+)?$" }]
+          pattern: "^[+-]?\\d*\\.?\\d+(?:[Ee][+-]?\\d+)?$"
         },
         required: true
       }

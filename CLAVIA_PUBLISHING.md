@@ -5,9 +5,9 @@ The `clavia/ai-providers` branch publishes four packages from this fork. Upstrea
 | Directory                   | npm package                | Initial version         |
 | --------------------------- | -------------------------- | ----------------------- |
 | `packages/ai/clavia`        | `@clavia/ai`               | `0.0.1`                 |
-| `packages/ai/openai`        | `@clavia/ai-openai`        | `4.0.0-rc.110-clavia.0` |
-| `packages/ai/anthropic`     | `@clavia/ai-anthropic`     | `4.0.0-rc.110-clavia.0` |
-| `packages/ai/openai-compat` | `@clavia/ai-openai-compat` | `4.0.0-rc.110-clavia.0` |
+| `packages/ai/openai`        | `@clavia/ai-openai`        | `4.0.0-rc.113-clavia.0` |
+| `packages/ai/anthropic`     | `@clavia/ai-anthropic`     | `4.0.0-rc.113-clavia.0` |
+| `packages/ai/openai-compat` | `@clavia/ai-openai-compat` | `4.0.0-rc.113-clavia.0` |
 
 ## Check packages
 
@@ -29,9 +29,9 @@ npm requires a package to exist before its trusted publisher can be configured. 
 ```sh
 npm login
 npm publish artifacts/clavia/clavia-ai-0.0.1.tgz --access public --tag next --provenance=false
-npm publish artifacts/clavia/clavia-ai-openai-4.0.0-rc.110-clavia.0.tgz --access public --tag next --provenance=false
-npm publish artifacts/clavia/clavia-ai-anthropic-4.0.0-rc.110-clavia.0.tgz --access public --tag next --provenance=false
-npm publish artifacts/clavia/clavia-ai-openai-compat-4.0.0-rc.110-clavia.0.tgz --access public --tag next --provenance=false
+npm publish artifacts/clavia/clavia-ai-openai-4.0.0-rc.113-clavia.0.tgz --access public --tag next --provenance=false
+npm publish artifacts/clavia/clavia-ai-anthropic-4.0.0-rc.113-clavia.0.tgz --access public --tag next --provenance=false
+npm publish artifacts/clavia/clavia-ai-openai-compat-4.0.0-rc.113-clavia.0.tgz --access public --tag next --provenance=false
 ```
 
 Local bootstrap publication has no GitHub provenance. Subsequent CI publications use OIDC authentication and provenance.
@@ -56,7 +56,7 @@ npm can require an interactive two-factor check. The workflow needs no npm token
 
 ## Release a version
 
-1. Update each changed package version in its manifest. Increment the provider suffix, such as `rc.110-clavia.0` to `rc.110-clavia.1`. Update the wrapper version when its code changes.
+1. Update each changed package version in its manifest. Increment the provider suffix, such as `rc.113-clavia.0` to `rc.113-clavia.1`. Update the wrapper version when its code changes.
 2. Push the reviewed changes to `clavia/ai-providers`.
 3. Open **Actions → Clavia packages → Run workflow** on that branch.
 4. Select `publish` and the npm tag. The default tag is `next`.

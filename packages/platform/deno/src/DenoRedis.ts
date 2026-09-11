@@ -44,17 +44,22 @@ export class DenoRedis extends Context.Service<DenoRedis, {
 }>()("@effect/platform-deno/DenoRedis") {}
 
 const make = Effect.fnUntraced(function*(options: RedisOptions = {}) {
+  const connectClient = () => {
+    const { url, ...connectOptions } = options
+    const parsedUrl = url === undefined ? undefined : new URL(url)
+    const { name, ...parsed } = url === undefined ? { hostname: "localhost" } : parseURL(url)
+    return connect({
+      ...parsed,
+      ...(name === undefined ? {} : { username: name }),
+      ...(parsedUrl?.username ? { username: decodeURIComponent(parsedUrl.username) } : {}),
+      ...(parsedUrl?.password ? { password: decodeURIComponent(parsedUrl.password) } : {}),
+      ...Record.filter(connectOptions, Predicate.isNotUndefined)
+    })
+  }
+
   const client = yield* Effect.acquireRelease(
     Effect.tryPromise({
-      try: () => {
-        const { url, ...connectOptions } = options
-        const { name, ...parsed } = url === undefined ? { hostname: "localhost" } : parseURL(url)
-        return connect({
-          ...parsed,
-          ...(name === undefined ? {} : { username: name }),
-          ...Record.filter(connectOptions, Predicate.isNotUndefined)
-        })
-      },
+      try: connectClient,
       catch: (cause) => new Redis.RedisError({ cause })
     }),
     (client) => Effect.sync(() => client.close())
@@ -71,7 +76,39 @@ const make = Effect.fnUntraced(function*(options: RedisOptions = {}) {
       Effect.tryPromise({
         try: () => client.sendCommand(command, args as Array<string>) as Promise<A>,
         catch: (cause) => new Redis.RedisError({ cause })
-      })
+      }),
+    subscribe: (channel, onMessage) =>
+      Effect.acquireRelease(
+        Effect.tryPromise({
+          try: async () => {
+            const subscriber = await connectClient()
+            try {
+              const subscription = await subscriber.subscribe(channel)
+              // @db/redis resolves subscribe after writing the command, before
+              // reading its acknowledgement. This ordered reply proves that
+              // Redis processed SUBSCRIBE before the dequeue is returned.
+              await subscriber.ping()
+              return { subscriber, subscription }
+            } catch (cause) {
+              subscriber.close()
+              throw cause
+            }
+          },
+          catch: (cause) => new Redis.RedisError({ cause })
+        }),
+        ({ subscriber }) => Effect.sync(() => subscriber.close())
+      ).pipe(
+        Effect.map(({ subscription }) =>
+          Effect.tryPromise({
+            try: async () => {
+              for await (const message of subscription.receive()) {
+                onMessage(message)
+              }
+            },
+            catch: (cause) => new Redis.RedisError({ cause })
+          })
+        )
+      )
   })
 
   const denoRedis = Fn.identity<DenoRedis["Service"]>({

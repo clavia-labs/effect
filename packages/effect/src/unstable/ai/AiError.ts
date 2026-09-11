@@ -20,9 +20,75 @@ import { redact } from "../../Redactable.ts"
 import * as Redacted from "../../Redacted.ts"
 import * as Schema from "../../Schema.ts"
 import type * as HttpClientError from "../http/HttpClientError.ts"
-import { HttpRequestDetails, HttpResponseDetails } from "./Response.ts"
 
-const ReasonTypeId = "~effect/unstable/ai/AiError/Reason" as const
+/**
+ * Schema for HTTP requests to an AI provider.
+ *
+ * **Example** (Describing an HTTP request)
+ *
+ * ```ts import.meta.vitest
+ * import type { AiError } from "effect/unstable/ai"
+ *
+ * const requestDetails: typeof AiError.HttpRequestDetails.Type = {
+ *   method: "POST",
+ *   url: "https://api.openai.com/v1/responses",
+ *   urlParams: [],
+ *   hash: undefined,
+ *   headers: { "Content-Type": "application/json" }
+ * }
+ * const result = [requestDetails.method, requestDetails.urlParams] // => ["POST", []]
+ * ```
+ *
+ * @category schemas
+ * @since 4.0.0
+ */
+export const HttpRequestDetails = Schema.Struct({
+  method: Schema.Literals(["GET", "POST", "PATCH", "PUT", "DELETE", "HEAD", "OPTIONS", "TRACE"]),
+  url: Schema.String,
+  urlParams: Schema.Array(Schema.Tuple([Schema.String, Schema.String])),
+  hash: Schema.optional(Schema.String),
+  headers: Schema.Record(
+    Schema.String,
+    Schema.Union([
+      Schema.String,
+      Schema.Redacted(Schema.String)
+    ])
+  )
+}).annotate({ identifier: "HttpRequestDetails" })
+
+/**
+ * Schema for HTTP responses from an AI provider.
+ *
+ * **Example** (Describing an HTTP response)
+ *
+ * ```ts import.meta.vitest
+ * import type { AiError } from "effect/unstable/ai"
+ *
+ * const responseDetails: typeof AiError.HttpResponseDetails.Type = {
+ *   status: 200,
+ *   headers: {
+ *     "Content-Type": "application/json",
+ *     "X-Request-Id": "req_abc123"
+ *   }
+ * }
+ * const result = [responseDetails.status, responseDetails.headers["X-Request-Id"]] // => [200, "req_abc123"]
+ * ```
+ *
+ * @category schemas
+ * @since 4.0.0
+ */
+export const HttpResponseDetails = Schema.Struct({
+  status: Schema.Int,
+  headers: Schema.Record(
+    Schema.String,
+    Schema.Union([
+      Schema.String,
+      Schema.Redacted(Schema.String)
+    ])
+  )
+}).annotate({ identifier: "HttpResponseDetails" })
+
+const ReasonTypeId = "~effect/ai/AiError/Reason" as const
 
 const providerMetadataWithDefaults = <Metadata extends ProviderMetadata>() =>
   (ProviderMetadata as unknown as typeof ProviderMetadata & Schema.Schema<Metadata>).pipe(
@@ -341,6 +407,52 @@ export const HttpContext = Schema.Struct({
   body: Schema.optional(Schema.String)
 }).annotate({ identifier: "HttpContext" })
 
+/**
+ * Builds a description for an HTTP error returned by an AI provider.
+ *
+ * @category utilities
+ * @since 4.0.0
+ */
+export const buildErrorDescription = (params: {
+  readonly status: number
+  readonly message: string | undefined
+  readonly method: string
+  readonly url: string
+  readonly errorCode?: string | number | null | undefined
+  readonly errorType?: string | null | undefined
+  readonly requestId?: string | null | undefined
+  readonly body: string | undefined
+}): string => {
+  const parts: Array<string> = []
+
+  if (params.message) {
+    parts.push(params.message)
+  } else {
+    parts.push(`HTTP ${params.status}`)
+  }
+
+  parts.push(`(${params.method} ${params.url})`)
+
+  if (params.errorCode) {
+    parts.push(`[code: ${params.errorCode}]`)
+  } else if (params.errorType) {
+    parts.push(`[type: ${params.errorType}]`)
+  }
+
+  if (params.requestId) {
+    parts.push(`[requestId: ${params.requestId}]`)
+  }
+
+  if (!params.message && params.body) {
+    const truncated = params.body.length > 200
+      ? params.body.slice(0, 200) + "..."
+      : params.body
+    parts.push(`Response: ${truncated}`)
+  }
+
+  return parts.join(" ")
+}
+
 // =============================================================================
 // Reason Classes
 // =============================================================================
@@ -468,6 +580,13 @@ export class QuotaExhaustedError extends Schema.Error<QuotaExhaustedError>(
  * })
  *
  * const result = [authError.kind, authError.isRetryable] // => ["InvalidKey", false]
+ *
+ * const detailed = new AiError.AuthenticationError({
+ *   kind: "InsufficientPermissions",
+ *   description: "Token expired"
+ * })
+ *
+ * detailed.message // => "InsufficientPermissions: Your API key lacks required permissions. Token expired"
  * ```
  *
  * @category errors
@@ -478,6 +597,7 @@ export class AuthenticationError extends Schema.Error<AuthenticationError>(
 )({
   _tag: Schema.tag("AuthenticationError"),
   kind: Schema.Literals(["InvalidKey", "ExpiredKey", "MissingKey", "InsufficientPermissions", "Unknown"]),
+  description: Schema.optional(Schema.String),
   metadata: providerMetadataWithDefaults<AuthenticationErrorMetadata>(),
   http: Schema.optional(HttpContext)
 }) {
@@ -505,7 +625,9 @@ export class AuthenticationError extends Schema.Error<AuthenticationError>(
       InsufficientPermissions: "Your API key lacks required permissions",
       Unknown: "Authentication failed. Check your credentials"
     }
-    return `${this.kind}: ${suggestions[this.kind]}`
+    let msg = `${this.kind}: ${suggestions[this.kind]}`
+    if (this.description) msg += `. ${this.description}`
+    return msg
   }
 }
 
@@ -999,7 +1121,6 @@ export class ToolNotFoundError extends Schema.Error<ToolNotFoundError>(
  *
  * const error = new AiError.ToolParameterValidationError({
  *   toolName: "GetWeather",
- *   toolParams: { location: 123 },
  *   description: "Expected string, got number"
  * })
  *
@@ -1014,7 +1135,6 @@ export class ToolParameterValidationError extends Schema.Error<ToolParameterVali
 )({
   _tag: Schema.tag("ToolParameterValidationError"),
   toolName: Schema.String,
-  toolParams: Schema.Json,
   description: Schema.String
 }) {
   /**
@@ -1396,7 +1516,7 @@ export const AiErrorReason: Schema.Union<[
 // Top-Level AiError
 // =============================================================================
 
-const TypeId = "~effect/unstable/ai/AiError/AiError" as const
+const TypeId = "~effect/ai/AiError" as const
 
 /**
  * Schema for the top-level AI error wrapper using the `reason` pattern.

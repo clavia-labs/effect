@@ -29,6 +29,18 @@ import * as Statement from "effect/unstable/sql/Statement"
 
 const ATTR_DB_SYSTEM_NAME = "db.system.name"
 
+// `open` is still exported at runtime in v18, but is missing from the package's
+// root type declarations.
+interface OpenOptions {
+  name: string
+  location?: string
+  encryptionKey?: string
+}
+
+const open = (Sqlite as typeof Sqlite & {
+  readonly open: (options: OpenOptions) => Sqlite.DB
+}).open
+
 const classifyError = (cause: unknown, message: string, operation: string) =>
   classifySqliteError(cause, { message, operation })
 
@@ -122,7 +134,7 @@ export const make = (
   options: SqliteClientConfig
 ): Effect.Effect<SqliteClient, never, Scope.Scope | Reactivity.Reactivity> =>
   Effect.gen(function*() {
-    const clientOptions: Parameters<typeof Sqlite.open>[0] = {
+    const clientOptions: Parameters<typeof open>[0] = {
       name: options.filename
     }
     if (options.location) {
@@ -138,7 +150,7 @@ export const make = (
       undefined
 
     const makeConnection = Effect.gen(function*() {
-      const db = Sqlite.open(clientOptions) as DB
+      const db = open(clientOptions) as DB
       yield* Effect.addFinalizer(() => Effect.sync(() => db.close()))
 
       const run = (
@@ -168,14 +180,17 @@ export const make = (
       ) =>
         Effect.withFiber<Array<any>, SqlError>((fiber) => {
           if (fiber.getRef(AsyncQuery)) {
-            return Effect.tryPromise({
-              try: () => db.executeRaw(sql, params as Array<any>),
-              catch: (cause) =>
-                new SqlError({ reason: classifyError(cause, "Failed to execute statement (async)", "execute") })
-            })
+            return Effect.map(
+              Effect.tryPromise({
+                try: () => db.executeRaw(sql, params as Array<any>),
+                catch: (cause) =>
+                  new SqlError({ reason: classifyError(cause, "Failed to execute statement (async)", "execute") })
+              }),
+              (result) => result.rawRows
+            )
           }
           return Effect.try({
-            try: () => db.executeRawSync(sql, params as Array<any>),
+            try: () => db.executeRawSync(sql, params as Array<any>).rawRows,
             catch: (cause) => new SqlError({ reason: classifyError(cause, "Failed to execute statement", "execute") })
           })
         })
@@ -324,12 +339,12 @@ interface DB {
    * Same as `execute` except the results are not returned in objects but rather in arrays with just the values and not the keys
    * It will be faster since a lot of repeated work is skipped and only the values you care about are returned
    */
-  executeRaw: (query: string, params?: Array<any>) => Promise<Array<any>>
+  executeRaw: (query: string, params?: Array<any>) => Promise<RawQueryResult>
   /**
    * Same as `executeRaw` but it will block the JS thread and therefore your UI and should be used with caution
    * It will return an array of arrays with just the values and not the keys
    */
-  executeRawSync: (query: string, params?: Array<any>) => Array<any>
+  executeRawSync: (query: string, params?: Array<any>) => RawQueryResult
   /**
    * Get's the absolute path to the db file. Useful for debugging on local builds and for attaching the DB from users devices
    */
@@ -354,6 +369,10 @@ interface DB {
    * The database is hosted in turso
    */
   sync: () => void
+}
+
+interface RawQueryResult {
+  rawRows: Array<Array<any>>
 }
 
 interface QueryResult {

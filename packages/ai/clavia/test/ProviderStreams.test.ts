@@ -55,10 +55,14 @@ const fixture = (provider: Provider, scenario: Scenario, segmented = false, reas
     )
     : CompatLanguageModel.layer({ model: "fixture" }).pipe(Layer.provide(CompatClient.layer(client)))
   const layer = providerLayer.pipe(Layer.provide(Layer.succeed(HttpClient.HttpClient, http)))
-  const stream = (prompt: Prompt.RawInput = "Read", failureMode: "return" | "error" = "return") =>
+  const stream = (prompt: Prompt.RawInput = "Read", failureMode: "return" | "error" = "return", dynamic = false) =>
     LanguageModel.streamText({
       prompt,
-      toolkit: Toolkit.make(Tool.make("read", { parameters: Schema.Struct({ path: Schema.String }), failureMode })),
+      toolkit: Toolkit.make(
+        dynamic
+          ? Tool.dynamic("read", { parameters: Schema.Struct({ path: Schema.String }), failureMode })
+          : Tool.make("read", { parameters: Schema.Struct({ path: Schema.String }), failureMode })
+      ),
       disableToolCallResolution: true
     }).pipe(Stream.provideService(ResponseFormat, format), Stream.provide(layer))
   return { stream, requests }
@@ -66,6 +70,14 @@ const fixture = (provider: Provider, scenario: Scenario, segmented = false, reas
 
 for (const provider of ["openai", "anthropic", "compat"] as const) {
   describe(provider, () => {
+    it.effect("validates native dynamic tools without a provider bypass", () =>
+      Effect.gen(function*() {
+        const { stream } = fixture(provider, "invalid")
+        const parts = yield* Stream.runCollect(stream("Read", "return", true))
+        assert.deepStrictEqual(parts.filter((part) => part.type === "tool-call").map((part) => part.id), ["a", "c"])
+        assert.strictEqual(parts.filter((part) => part.type === "error").length, 1)
+      }))
+
     for (const segmented of [false, true]) {
       it.effect(`retains A and C, rejected B, and usage with segmented=${segmented}`, () =>
         Effect.gen(function*() {
@@ -118,7 +130,7 @@ for (const provider of ["openai", "anthropic", "compat"] as const) {
         const { stream } = fixture(provider, "invalid")
         const result = yield* Effect.result(Stream.runCollect(stream("Read", "error")))
         assert.strictEqual(result._tag, "Failure")
-        if (result._tag === "Failure") assert.strictEqual(result.failure.reason._tag, "ToolParameterValidationError")
+        if (result._tag === "Failure") assert.strictEqual(result.failure.reason._tag, "InvalidOutputError")
       }))
 
     for (const scenario of ["length", "partial-length"] as const) {

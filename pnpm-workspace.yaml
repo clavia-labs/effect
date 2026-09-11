@@ -10,12 +10,14 @@ packages:
   - packages/tools/*
   - examples/*
 
+verifyDepsBeforeRun: error
+enableGlobalVirtualStore: false
+
 allowBuilds:
   core-js: false
   cpu-features: false
   dprint: false
   esbuild: false
-  msgpackr-extract: false
   protobufjs: false
   sharp: false
   ssh2: false
@@ -25,5 +27,4 @@ allowBuilds:
   workerd: false
 
 patchedDependencies:
-  '@changesets/get-github-info@1.0.0-next.4': patches/@changesets__get-github-info@1.0.0-next.4.patch
-  '@changesets/read@1.0.0-next.10': patches/@changesets__read@1.0.0-next.10.patch
+  '@changesets/get-github-info@1.0.1': patches/@changesets__get-github-info@1.0.1.patch

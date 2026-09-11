@@ -1,26 +1,25 @@
 # Clavia provider patches
 
-Base: `effect@4.0.0-rc.110`. Branch: `clavia/ai-providers`.
+Base: `effect@4.0.0-rc.113`. Publishing branch: `clavia/ai-providers`.
 
 This fork carries provider changes for Tardigrade. The Effect runtime source is unchanged. The provider packages use the `@clavia` scope. `@clavia/ai` supplies their shared factory wrapper.
 
 ## Ported changes
 
-| Change                      | Packages                             | Contract                                                                                                                                         |
-| --------------------------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Recoverable tool validation | OpenAI, Anthropic, OpenAI compatible | Return-mode tools emit identified validation errors. Later calls and usage remain available. Default-mode tools still fail.                      |
-| Dynamic parameter decoding  | All three                            | Preserve the existing dynamic-tool schema bypass during this source port. Review its removal with native schema construction separately.         |
-| Output limit handling       | All three                            | Preserve length completion and usage. OpenAI and Anthropic defer tool JSON parse errors until completion; normal malformed responses still fail. |
-| Raw usage                   | OpenAI, OpenAI compatible            | Preserve provider usage fields in finish metadata.                                                                                               |
-| Completion evidence         | OpenAI compatible                    | Reject a final sentinel without a provider finish reason.                                                                                        |
-| Reasoning replay            | OpenAI compatible                    | Preserve the observed reasoning field and combine assistant reasoning, text, and calls during replay.                                            |
-| Shared metadata types       | OpenAI compatible                    | Align approval metadata with the OpenAI provider declarations.                                                                                   |
+| Change                   | Packages                  | Contract                                                                                                                                                              |
+| ------------------------ | ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Deferred tool validation | Shared wrapper            | Effect encoded schemas check streamed calls before native response decoding. Return-mode failures remain identified errors; managed execution uses upstream behavior. |
+| Output limit handling    | All three                 | Preserve length completion and usage. OpenAI and Anthropic defer tool JSON parse errors until completion; normal malformed responses still fail.                      |
+| Raw usage                | OpenAI, OpenAI compatible | Preserve provider usage fields in finish metadata.                                                                                                                    |
+| Completion evidence      | OpenAI compatible         | Reject a final sentinel without a provider finish reason.                                                                                                             |
+| Reasoning replay         | OpenAI compatible         | Preserve the observed reasoning field and combine assistant reasoning, text, and calls during replay.                                                                 |
+| Shared metadata types    | OpenAI compatible         | Align approval metadata with the OpenAI provider declarations.                                                                                                        |
 
 ## Response format wrapper
 
 `@clavia/ai/LanguageModel` exports `ResponseFormat` and `make`. The factory calls upstream `LanguageModel.make` with wrapped provider hooks. A scoped `ResponseFormat` supplies the text-generation format. Object generation retains its explicit schema and native decoding.
 
-All three provider factories use this wrapper. Effect service identity, prompt handling, and validation remain upstream. The wrapper does not replace or patch the Effect module.
+All three provider factories use this wrapper. Effect service identity, prompt handling, and validation remain upstream. The wrapper does not replace or patch the Effect module. Its streamed deferred-call path checks encoded schemas before native response decoding. An internal context reference keeps that path separate from managed execution.
 
 ## Validation
 
@@ -39,3 +38,27 @@ Durable event recording, retry policy, host lifecycle, and tool dispatch remain 
 [CLAVIA_PUBLISHING.md](CLAVIA_PUBLISHING.md) describes package checks, npm authentication, and the GitHub publishing workflow.
 
 Generated JavaScript and declarations come from the fork build. Dependency patch files and generated distribution files are not copied into the source tree.
+
+## rc.113 evaluation
+
+The evaluation uses the published `effect@4.0.0-rc.113` tag (`d3b837aee8`). It retains newer upstream provider code and tests.
+
+The repeated provider validation helpers and dynamic-schema bypasses are removed. Native schema normalization remains upstream. Deferred streaming validation lives in the shared wrapper and uses `Schema.toEncoded` plus `Schema.decodeUnknownEffect`. No tool handlers run during that check.
+
+The upstream managed-execution fix remains active. Tests run managed and deferred calls concurrently and check their different outcomes. Native dynamic tools use Effect schemas directly; the raw-schema object mutation workaround is outside this supported construction.
+
+Remaining provider patches cover incomplete JSON on output limits, OpenAI length mapping, raw usage, compatible completion evidence, compatible reasoning replay, and shared metadata declarations. Default-mode invalid parameters follow rc.113's native `InvalidOutputError` behavior.
+
+The publishing branch uses rc.113. Tardigrade still requires an Effect dependency upgrade and removal of its dynamic-tool schema mutation before release.
+
+### Validation result
+
+The evaluation passes 230 provider tests, workspace typechecking, lint, and all four package builds. The packed packages pass 28 runtime tests against the published rc.113 runtime. The runtime dependency tree uses upstream Effect.
+
+The strict packed-consumer declaration check fails in upstream `effect` declarations. Missing names include `EffectTypeId`, `Contextual`, and `AnnotationSchemaConstraint`. A separate file importing only `effect/Effect` reproduces the missing `AnnotationSchemaConstraint` errors without importing Clavia packages.
+
+[Upstream fix 8162](https://github.com/Effect-TS/effect/pull/8162) removes the dangling internal declaration references. It is after the rc.113 release tag. Keep the strict consumer check enabled and wait for an upstream release containing this fix before publishing the rc.113-based evaluation.
+
+The compatible provider's metadata patch also includes the new `promptCacheBreakpoint` type to match the shared OpenAI declaration. After this correction, the strict consumer check reports only upstream Effect errors.
+
+Evidence logs are `/tmp/effect-rc113-final-tests.log`, `/tmp/effect-rc113-packed-runtime.log`, `/tmp/effect-rc113-consumer-final.log`, and `/tmp/effect-rc113-baseline-types.log`. The evaluation is promoted to the publishing branch. No npm packages have been published.
