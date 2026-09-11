@@ -2698,7 +2698,6 @@ const makeStreamResponse = Effect.fnUntraced(
                         method: "makeStreamResponse",
                         reason: new AiError.ToolParameterValidationError({
                           toolName: contentBlock.name,
-                          toolParams: {},
                           description: `Failed to securely JSON parse tool parameters: ${cause}`
                         })
                       })
@@ -2708,24 +2707,9 @@ const makeStreamResponse = Effect.fnUntraced(
                     break
                   }
                   const rawParams = parsed.success
-                  const validation = contentBlock.providerExecuted === true
-                    ? { params: rawParams }
-                    : yield* validateStreamTool(options.tools, contentBlock.name, rawParams)
-                  if ("error" in validation) {
-                    parts.push({
-                      type: "error",
-                      error: {
-                        _tag: "ToolCallValidationError",
-                        id: contentBlock.id,
-                        name: contentBlock.name,
-                        params: rawParams,
-                        cause: validation.error,
-                        providerMetadata: {}
-                      }
-                    })
-                    break
-                  }
-                  const params = validation.params
+                  const params = contentBlock.providerExecuted === true
+                    ? rawParams
+                    : yield* transformToolCallParams(options.tools, contentBlock.name, rawParams)
 
                   parts.push({
                     type: "tool-call",

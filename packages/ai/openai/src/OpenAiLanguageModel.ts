@@ -2191,24 +2191,7 @@ const makeStreamResponse = Effect.fnUntraced(
                   break
                 }
                 const toolParams = parsed.success
-                const validation = yield* validateStreamTool(options.tools, toolName, toolParams)
-                if ("error" in validation) {
-                  parts.push({ type: "tool-params-end", id: event.item.call_id })
-                  parts.push({
-                    type: "error",
-                    error: {
-                      _tag: "ToolCallValidationError",
-                      id: event.item.call_id,
-                      name: toolName,
-                      params: toolParams,
-                      cause: validation.error,
-                      providerMetadata: { openai: makeItemIdMetadata(event.item.id) }
-                    }
-                  })
-
-                  break
-                }
-                const params = validation.params
+                const params = yield* transformToolCallParams(options.tools, toolName, toolParams)
 
                 parts.push({
                   type: "tool-params-end",
@@ -2519,24 +2502,7 @@ const makeStreamResponse = Effect.fnUntraced(
                 break
               }
               const toolParams = parsed.success
-              const validation = yield* validateStreamTool(options.tools, toolCall.name, toolParams)
-              if ("error" in validation) {
-                parts.push({ type: "tool-params-end", id: toolCall.id })
-                parts.push({
-                  type: "error",
-                  error: {
-                    _tag: "ToolCallValidationError",
-                    id: toolCall.id,
-                    name: toolCall.name,
-                    params: toolParams,
-                    cause: validation.error,
-                    providerMetadata: { openai: makeItemIdMetadata(event.item_id) }
-                  }
-                })
-                toolCall.functionCall.emitted = true
-                break
-              }
-              const params = validation.params
+              const params = yield* transformToolCallParams(options.tools, toolCall.name, toolParams)
 
               parts.push({
                 type: "tool-params-end",
@@ -3285,18 +3251,6 @@ const transformToolCallParams = Effect.fnUntraced(function*<Tools extends Readon
     Effect.orElseSucceed(() => toolParams)
   )
 })
-
-// validateStreamTool returns parameter failures only for tools that opt into return mode.
-const validateStreamTool = (tools: ReadonlyArray<Tool.Any>, name: string, params: unknown) =>
-  transformToolCallParams(tools, name, params).pipe(
-    Effect.map((params) => ({ params })),
-    Effect.catch((error) =>
-      error.reason._tag === "ToolParameterValidationError" &&
-        tools.some((tool) => tool.name === name && tool.failureMode === "return")
-        ? Effect.succeed({ error: Schema.encodeSync(AiError.AiError)(error) })
-        : Effect.fail(error)
-    )
-  )
 
 const finishMetadata = (tier: string | undefined, usage: OpenAiSchema.ResponseUsage | null | undefined) => ({
   metadata: {

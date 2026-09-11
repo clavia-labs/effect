@@ -237,6 +237,7 @@ declare module "effect/unstable/ai/Prompt" {
        * A list of annotations that apply to the output text.
        */
       readonly annotations?: ReadonlyArray<Annotation> | null
+      readonly promptCacheBreakpoint?: { readonly mode: "explicit" } | null
     } | null
   }
 }

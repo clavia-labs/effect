@@ -40,10 +40,4 @@ scratchpad/**/*
 # Agent config
 opencode.json
 
-# Repositories
-.repos/
-
-# oxlint data
-.data/
-
 /artifacts/clavia/

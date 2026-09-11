@@ -19,3 +19,5 @@ const response = LanguageModel.streamText({ prompt: "Return an answer." }).pipe(
 ```
 
 Supply a Clavia provider layer when running the stream. The format constrains the provider request. It does not validate the returned text as an object.
+
+When `disableToolCallResolution` is true, return-mode tool calls are checked with Effect's encoded parameter schemas. An invalid call becomes an identified `ToolCallValidationError` response part. Valid calls continue without executing handlers. Default-mode validation failures retain upstream behavior. This handling applies to streaming responses.
