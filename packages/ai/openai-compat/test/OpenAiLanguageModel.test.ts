@@ -1565,6 +1565,181 @@ describe("OpenAiLanguageModel", () => {
         assert.deepStrictEqual(toolCall.params, { input: "hello" })
       }))
 
+    for (
+      const fixture of [
+        { name: "a complete call on tool_calls", reason: "tool_calls", args: "{\"input\":\"hello\"}", calls: 1 },
+        { name: "a complete call on length", reason: "length", args: "{\"input\":\"hello\"}", calls: 1 },
+        { name: "partial arguments on length", reason: "length", args: "{\"input\":\"hel", calls: 0 },
+        { name: "empty arguments on length", reason: "length", args: "", calls: 0 },
+        { name: "trailing partial JSON on length", reason: "length", args: "{\"input\":\"hello\"}{", calls: 0 },
+        {
+          name: "unsafe arguments on length",
+          reason: "length",
+          args: "{\"input\":\"hello\",\"__proto__\":{}}",
+          calls: 0
+        }
+      ] as const
+    ) {
+      it.effect(`preserves stream evidence for ${fixture.name}`, () =>
+        Effect.gen(function*() {
+          const layer = OpenAiClient.layer({ apiKey: Redacted.make("sk-test-key") }).pipe(
+            Layer.provide(Layer.succeed(
+              HttpClient.HttpClient,
+              makeHttpClient((request) =>
+                Effect.succeed(sseResponse(request, [
+                  toolStreamChunk({
+                    tool_calls: [{
+                      index: 0,
+                      id: "call_1",
+                      type: "function",
+                      function: { name: "TestTool", arguments: fixture.args }
+                    }]
+                  }),
+                  toolStreamChunk({}, fixture.reason),
+                  {
+                    ...toolStreamChunk({}),
+                    choices: [],
+                    usage: { prompt_tokens: 5, completion_tokens: 7, total_tokens: 12 }
+                  },
+                  "[DONE]"
+                ]))
+              )
+            ))
+          )
+          const parts = globalThis.Array.from(
+            yield* LanguageModel.streamText({
+              prompt: "use the tool",
+              toolkit: TestToolkit,
+              disableToolCallResolution: true
+            }).pipe(
+              Stream.runCollect,
+              Effect.provide(OpenAiLanguageModel.model("gpt-4o-mini")),
+              Effect.provide(layer)
+            )
+          )
+          const calls = parts.filter((part) => part.type === "tool-call")
+          assert.strictEqual(calls.length, fixture.calls)
+          if (fixture.calls === 1) {
+            assert.strictEqual(calls[0]?.id, "call_1")
+            assert.strictEqual(calls[0]?.name, "TestTool")
+            assert.deepStrictEqual(calls[0]?.params, { input: "hello" })
+          }
+          assert.deepStrictEqual(parts.filter((part) => part.type === "tool-params-end").map((part) => part.id), [
+            "call_1"
+          ])
+          assert.strictEqual(
+            parts.filter((part) => part.type === "tool-params-delta").map((part) => part.delta).join(""),
+            fixture.args
+          )
+          const finishes = parts.filter((part) => part.type === "finish")
+          assert.strictEqual(finishes.length, 1)
+          assert.strictEqual(finishes[0]?.reason, fixture.reason === "length" ? "length" : "tool-calls")
+          assert.strictEqual(finishes[0]?.usage.inputTokens.total, 5)
+          assert.strictEqual(finishes[0]?.usage.outputTokens.total, 7)
+        }))
+    }
+
+    it.effect("retains complete parallel calls around an incomplete call on length", () =>
+      Effect.gen(function*() {
+        const layer = OpenAiClient.layer({ apiKey: Redacted.make("sk-test-key") }).pipe(
+          Layer.provide(Layer.succeed(
+            HttpClient.HttpClient,
+            makeHttpClient((request) =>
+              Effect.succeed(sseResponse(request, [
+                toolStreamChunk({
+                  tool_calls: [
+                    {
+                      index: 0,
+                      id: "call_0",
+                      type: "function",
+                      function: { name: "TestTool", arguments: "{\"input\":" }
+                    },
+                    {
+                      index: 1,
+                      id: "call_1",
+                      type: "function",
+                      function: { name: "TestTool", arguments: "{\"input\":\"partial" }
+                    },
+                    {
+                      index: 2,
+                      id: "call_2",
+                      type: "function",
+                      function: { name: "TestTool", arguments: "{\"input\":" }
+                    }
+                  ]
+                }),
+                toolStreamChunk({
+                  tool_calls: [
+                    { index: 2, function: { name: null, arguments: "\"last\"}" } },
+                    { index: 0, function: { name: null, arguments: "\"first\"}" } }
+                  ]
+                }),
+                toolStreamChunk({}, "length"),
+                "[DONE]"
+              ]))
+            )
+          ))
+        )
+        const parts = globalThis.Array.from(
+          yield* LanguageModel.streamText({
+            prompt: "use the tools",
+            toolkit: TestToolkit,
+            disableToolCallResolution: true
+          }).pipe(
+            Stream.runCollect,
+            Effect.provide(OpenAiLanguageModel.model("gpt-4o-mini")),
+            Effect.provide(layer)
+          )
+        )
+        assert.deepStrictEqual(
+          parts.filter((part) => part.type === "tool-call").map(({ id, params }) => ({ id, params })),
+          [
+            { id: "call_0", params: { input: "first" } },
+            { id: "call_2", params: { input: "last" } }
+          ]
+        )
+        assert.deepStrictEqual(parts.filter((part) => part.type === "tool-params-end").map((part) => part.id), [
+          "call_0",
+          "call_1",
+          "call_2"
+        ])
+        assert.deepStrictEqual(parts.filter((part) => part.type === "finish").map((part) => part.reason), ["length"])
+      }))
+
+    it.effect("still rejects malformed arguments on tool_calls", () =>
+      Effect.gen(function*() {
+        const layer = OpenAiClient.layer({ apiKey: Redacted.make("sk-test-key") }).pipe(
+          Layer.provide(Layer.succeed(
+            HttpClient.HttpClient,
+            makeHttpClient((request) =>
+              Effect.succeed(sseResponse(request, [
+                toolStreamChunk({
+                  tool_calls: [{
+                    index: 0,
+                    id: "call_1",
+                    type: "function",
+                    function: { name: "TestTool", arguments: "{\"input\":\"partial" }
+                  }]
+                }),
+                toolStreamChunk({}, "tool_calls"),
+                "[DONE]"
+              ]))
+            )
+          ))
+        )
+        const error = yield* LanguageModel.streamText({
+          prompt: "use the tool",
+          toolkit: TestToolkit,
+          disableToolCallResolution: true
+        }).pipe(
+          Stream.runCollect,
+          Effect.flip,
+          Effect.provide(OpenAiLanguageModel.model("gpt-4o-mini")),
+          Effect.provide(layer)
+        )
+        assert.strictEqual(error.reason._tag, "ToolParameterValidationError")
+      }))
+
     it.effect("emits reasoning lifecycle parts for delta.reasoning", () =>
       Effect.gen(function*() {
         const chunk = (delta: Record<string, unknown>, finishReason: string | null = null) => ({
@@ -1866,6 +2041,14 @@ const jsonResponse = (
       }
     })
   )
+
+const toolStreamChunk = (delta: Record<string, unknown>, finishReason: "tool_calls" | "length" | null = null) => ({
+  id: "chatcmpl_tool_stream",
+  object: "chat.completion.chunk",
+  model: "gpt-4o-mini",
+  created: 1,
+  choices: [{ index: 0, delta, finish_reason: finishReason }]
+})
 
 const sseResponse = (
   request: HttpClientRequest.HttpClientRequest,
