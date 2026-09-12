@@ -613,13 +613,17 @@ class BedrockResponse {
       if (event.metadata !== undefined) {
         if (this.stop === undefined) return yield* outputError("Bedrock usage arrived before message completion")
         const reason = stopReason(this.stop)
-        if (reason === "stop" || reason === "tool-calls") {
+        if (reason === "stop" || reason === "tool-calls" || reason === "length") {
           for (const [, call] of [...this.calls].sort(([a], [b]) => a - b)) {
-            const params = yield* Effect.try({
-              try: () => Tool.unsafeSecureJsonParse(call.text === "" ? "{}" : call.text),
+            const params = yield* Effect.result(Effect.try({
+              try: () => Tool.unsafeSecureJsonParse(call.text === "" && reason !== "length" ? "{}" : call.text),
               catch: outputError
-            })
-            parts.push({ type: "tool-call", id: call.id, name: call.name!, params })
+            }))
+            if (Result.isFailure(params)) {
+              if (reason === "length") continue
+              return yield* Effect.fail(params.failure)
+            }
+            parts.push({ type: "tool-call", id: call.id, name: call.name!, params: params.success })
           }
         }
         const usage = event.metadata.usage
