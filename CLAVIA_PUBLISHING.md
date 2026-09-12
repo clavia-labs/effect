@@ -6,14 +6,14 @@ The `clavia/ai-providers` branch publishes five AI packages. Each package requir
 | --------------------------- | -------------------------- | ----------------------- |
 | `packages/ai/bedrock`       | `@tardie/ai-bedrock`       | `0.0.1`                 |
 | `packages/ai/clavia`        | `@tardie/ai`               | `0.0.2`                 |
-| `packages/ai/openai`        | `@tardie/ai-openai`        | `4.0.0-rc.113-clavia.2` |
-| `packages/ai/anthropic`     | `@tardie/ai-anthropic`     | `4.0.0-rc.113-clavia.1` |
-| `packages/ai/openai-compat` | `@tardie/ai-openai-compat` | `4.0.0-rc.113-clavia.1` |
+| `packages/ai/openai`        | `@tardie/ai-openai`        | `4.0.0-rc.113-clavia.3` |
+| `packages/ai/anthropic`     | `@tardie/ai-anthropic`     | `4.0.0-rc.113-clavia.2` |
+| `packages/ai/openai-compat` | `@tardie/ai-openai-compat` | `4.0.0-rc.113-clavia.2` |
 
 ## Install packages
 
 ```sh
-npm install effect@4.0.0-rc.115 @tardie/ai-openai@4.0.0-rc.113-clavia.2
+npm install effect@4.0.0-rc.115 @tardie/ai-openai@4.0.0-rc.113-clavia.3
 npm ls effect
 ```
 

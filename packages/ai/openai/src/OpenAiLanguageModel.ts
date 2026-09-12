@@ -629,7 +629,7 @@ export const make = Effect.fnUntraced(function*({ model, config: providerConfig 
       readonly options: LanguageModel.ProviderOptions
       readonly toolNameMapper: Tool.NameMapper<Tools>
     }): Effect.fn.Return<typeof OpenAiSchema.CreateResponse.Encoded, AiError.AiError> {
-      const include = new Set<typeof OpenAiSchema.IncludeEnum.Encoded>()
+      const include = new Set<typeof OpenAiSchema.IncludeEnum.Encoded>(config.include ?? [])
       const capabilities = getModelCapabilities(config.model as string)
       const messages = yield* prepareMessages({
         config,

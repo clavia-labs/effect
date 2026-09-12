@@ -92,3 +92,11 @@ OpenRouter can append `[DONE]` after its terminal response event. The OpenAI cli
 `test/BedrockLanguageModel.test.ts` covers prompt/tool changes, native reasoning replay, isolated tool validation, fragmented and corrupted AWS frames, cancellation, error classification, and usage metadata. Tardigrade retains its binding tests for rejected-call repair, incomplete streams, truncation, and durable evidence.
 
 Cloudflare gateway authentication and Tardigrade request policies remain outside this package. The initial scope is streamText only; generateText fails explicitly. This is a fork provider, not an upstream Effect package.
+
+## Provider boundary regressions
+
+OpenAI preserves explicit `include` values before adding inferred fields. Deployment aliases can request encrypted reasoning regardless of model-name detection or `store`. The compatible provider rejects `n` other than 1 before transport and rejects unexpected alternative choice indexes while streaming. Effect LanguageModel exposes a single response.
+
+Anthropic derives its streaming delta schema from the generated schema and permits omitted input and cache counters. The response accumulator retains earlier counters for null or absent updates and accepts an explicit zero. The usage override retains generated field validators. The wire contract is shown in the [Anthropic streaming examples](https://platform.claude.com/docs/en/build-with-claude/streaming). The model configuration uses the generated effort union, including `max` and `xhigh`. The pinned codegen input patches both effort enums. Only their declarations were imported from regenerated output; unrelated schema generation changes are excluded.
+
+`packages/ai/clavia/test/ProviderStreams.test.ts` proves explicit include retention, pre-request choice rejection, interleaved-choice rejection, and partial usage accumulation. The full provider suite passes 271 tests. These changes are prepared for OpenAI `rc.113-clavia.3`, Anthropic `rc.113-clavia.2`, and compatible `rc.113-clavia.2`.
