@@ -19,6 +19,7 @@ import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as Rec from "effect/Record"
 import * as Redactable from "effect/Redactable"
+import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
 import * as AST from "effect/SchemaAST"
 import * as Stream from "effect/Stream"
@@ -1198,12 +1199,9 @@ const makeStreamResponse = Effect.fnUntraced(
           }
 
           for (const toolCall of Object.values(activeToolCalls)) {
-            if (finishReason === "length") {
-              parts.push({ type: "tool-params-end", id: toolCall.id })
-              continue
-            }
-            const toolParams = toolCall.arguments.length > 0 ? toolCall.arguments : "{}"
-            const parsedParams = yield* Effect.try({
+            // A length finish preserves complete calls; an empty or partial buffer cannot supply arguments.
+            const toolParams = toolCall.arguments.length > 0 || finishReason === "length" ? toolCall.arguments : "{}"
+            const parsedParams = yield* Effect.result(Effect.try({
               try: () => Tool.unsafeSecureJsonParse(toolParams),
               catch: (cause) =>
                 AiError.make({
@@ -1214,9 +1212,13 @@ const makeStreamResponse = Effect.fnUntraced(
                     description: `Failed to securely JSON parse tool parameters: ${cause}`
                   })
                 })
-            })
-            const params = yield* transformToolCallParams(options.tools, toolCall.name, parsedParams)
+            }))
             parts.push({ type: "tool-params-end", id: toolCall.id })
+            if (Result.isFailure(parsedParams)) {
+              if (finishReason === "length") continue
+              return yield* Effect.fail(parsedParams.failure)
+            }
+            const params = yield* transformToolCallParams(options.tools, toolCall.name, parsedParams.success)
             parts.push({
               type: "tool-call",
               id: toolCall.id,
