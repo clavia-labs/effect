@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url"
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..")
 const destination = join(root, "artifacts/clavia")
-const providers = ["clavia", "openai", "anthropic", "openai-compat"].map((directory) => {
+const providers = ["clavia", "openai", "anthropic", "openai-compat", "bedrock"].map((directory) => {
   const path = join(root, "packages/ai", directory)
   const manifest = JSON.parse(readFileSync(join(path, "package.json"), "utf8"))
   const name = directory === "clavia" ? "@tardie/ai" : `@tardie/ai-${directory}`
@@ -53,13 +53,14 @@ if (action === "check") {
   assert.equal(installedRuntime.name, "effect")
   assert.equal(installedRuntime.version, effectVersion)
   cpSync(join(root, "packages/ai/clavia/test"), join(consumer, "test"), { recursive: true })
+  cpSync(join(root, "packages/ai/bedrock/test"), join(consumer, "test/bedrock"), { recursive: true })
   const entrypoints = Object.entries(installedRuntime.exports)
     .filter(([key, value]) => value !== null && key !== "./package.json" && !key.includes("*"))
     .map(([key]) => key === "." ? "effect" : `effect/${key.slice(2)}`)
   writeFileSync(join(consumer, "test/runtime.ts"), entrypoints.map((name, index) => `export * as runtime${index} from "${name}"`).join("\n"))
   writeFileSync(join(consumer, "tsconfig.json"), JSON.stringify({ compilerOptions: { target: "ESNext", module: "NodeNext", moduleResolution: "NodeNext", strict: true, exactOptionalPropertyTypes: true, skipLibCheck: false, allowImportingTsExtensions: true, noEmit: true, types: ["node"] }, include: ["test/**/*.ts"] }))
   run("npm", ["exec", "--no", "--", "tsc", "-p", "tsconfig.json"], consumer)
-  run("npm", ["exec", "--no", "--", "vitest", "run", "test/LanguageModel.test.ts", "test/ProviderStreams.test.ts"], consumer)
+  run("npm", ["exec", "--no", "--", "vitest", "run", "test/LanguageModel.test.ts", "test/ProviderStreams.test.ts", "test/bedrock/BedrockLanguageModel.test.ts"], consumer)
   run("npm", ["ls", "effect"], consumer)
   console.log(`Packed consumer checked at ${consumer}`)
 }

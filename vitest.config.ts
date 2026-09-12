@@ -107,6 +107,7 @@ export default defineConfig({
           : undefined
       ),
       ...project("@tardie/ai", "packages/ai/clavia"),
+      ...project("@tardie/ai-bedrock", "packages/ai/bedrock"),
       ...project("@tardie/ai-anthropic", "packages/ai/anthropic"),
       ...project("@tardie/ai-openai", "packages/ai/openai"),
       ...project("@tardie/ai-openai-compat", "packages/ai/openai-compat"),

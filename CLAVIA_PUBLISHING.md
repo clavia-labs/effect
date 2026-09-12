@@ -1,9 +1,10 @@
 # Publish Tardie AI packages
 
-The `clavia/ai-providers` branch publishes four provider packages. Each package requires upstream `effect@4.0.0-rc.115`. The release workflow does not publish an Effect runtime.
+The `clavia/ai-providers` branch publishes five AI packages. Each package requires upstream `effect@4.0.0-rc.115`. The release workflow does not publish an Effect runtime.
 
 | Directory                   | npm package                | Version                 |
 | --------------------------- | -------------------------- | ----------------------- |
+| `packages/ai/bedrock`       | `@tardie/ai-bedrock`       | `0.0.1`                 |
 | `packages/ai/clavia`        | `@tardie/ai`               | `0.0.2`                 |
 | `packages/ai/openai`        | `@tardie/ai-openai`        | `4.0.0-rc.113-clavia.2` |
 | `packages/ai/anthropic`     | `@tardie/ai-anthropic`     | `4.0.0-rc.113-clavia.1` |
@@ -20,7 +21,7 @@ The dependency tree must resolve to one Effect runtime. Upstream rc.114 includes
 
 ## Check packages
 
-The **Clavia packages** workflow checks types, lint, and provider tests. It builds the workspace dependencies and packs the four provider packages. A fresh npm consumer installs the archives with upstream Effect and checks declarations with `skipLibCheck: false`. It also runs shared provider tests and checks the dependency tree.
+The **Clavia packages** workflow checks types, lint, and provider tests. It builds the workspace dependencies and packs the five AI packages. A fresh npm consumer installs the archives with upstream Effect and checks declarations with `skipLibCheck: false`. It also runs shared provider tests and checks the dependency tree.
 
 ```sh
 node scripts/clavia-release.mjs pack
@@ -38,3 +39,9 @@ node scripts/clavia-release.mjs check
 The publish job uses npm trusted publishing with GitHub provenance. Each package trusts repository `clavia-labs/effect`, workflow `clavia-publish.yml`, and environment `npm`. No npm token secret is required.
 
 The job publishes the checked archives in dependency order. An existing version is skipped only when its registry integrity matches the archive. A version with different contents fails the job.
+
+## Bedrock first publication
+
+`@tardie/ai-bedrock` contains the AWS SDK dependency and exposes `BedrockLanguageModel.layer` and `BedrockLanguageModel.Config`. It supports Converse streaming. `generateText` returns a typed unsupported-operation error. The provider tests also run against the packed package.
+
+The package needs an initial authenticated npm publication before its trusted publisher can be configured. Use repository `clavia-labs/effect`, workflow `clavia-publish.yml`, and environment `npm` for subsequent releases.
