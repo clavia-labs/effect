@@ -6,6 +6,7 @@
     { "path": "ai-docs" },
     { "path": "packages/effect" },
     { "path": "packages/ai/clavia" },
+    { "path": "packages/ai/bedrock" },
     { "path": "packages/ai/anthropic" },
     { "path": "packages/ai/openai-compat" },
     { "path": "packages/ai/openai" },

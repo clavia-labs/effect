@@ -84,3 +84,11 @@ The packed consumer imports every public runtime entrypoint with `skipLibCheck: 
 OpenRouter can append `[DONE]` after its terminal response event. The OpenAI client handles the sentinel before schema decoding, including when both arrive in one network chunk. Response events retain schema validation. A bare sentinel produces no completion event, and malformed JSON before completion still fails.
 
 `packages/ai/openai/test/OpenAiClient.test.ts` checks completed, incomplete, and failed terminal events with combined and separate chunks. Tardigrade also checks the installed package with a combined-chunk fixture. The fix ships in `@tardie/ai-openai@4.0.0-rc.113-clavia.2`.
+
+## Bedrock provider
+
+`packages/ai/bedrock` supplies `@tardie/ai-bedrock`. It translates AWS Converse streams into Effect prompts, response parts, and AiError. AWS owns event-stream decoding; the provider owns Converse mapping, signed and redacted reasoning, token usage, and cancellation. It uses the shared deferred-validation wrapper.
+
+`test/BedrockLanguageModel.test.ts` covers prompt/tool changes, native reasoning replay, isolated tool validation, fragmented and corrupted AWS frames, cancellation, error classification, and usage metadata. Tardigrade retains its binding tests for rejected-call repair, incomplete streams, truncation, and durable evidence.
+
+Cloudflare gateway authentication and Tardigrade request policies remain outside this package. The initial scope is streamText only; generateText fails explicitly. This is a fork provider, not an upstream Effect package.
