@@ -177,6 +177,61 @@ for (const input of [undefined, "", "{}", "{"] as const) {
   })
 }
 
+test("Bedrock preserves complete tool calls when output reaches its token limit", async () => {
+  const bash = Toolkit.make(
+    Tool.make("bash", { parameters: Schema.Struct({ command: Schema.String }), failureMode: "return" })
+  )
+  const inputs = [
+    { id: "complete", input: "{\"command\":\"pwd\"}" },
+    { id: "partial", input: "{\"command\":" },
+    { id: "unsafe", input: "{\"__proto__\":{}}" },
+    { id: "empty", input: "" }
+  ]
+  const layer = BedrockLanguageModel.layer({
+    model: { model: "claude" },
+    client: {
+      send: async () => ({
+        $metadata: {},
+        stream: (async function*() {
+          for (const [index, call] of inputs.entries()) {
+            yield {
+              contentBlockStart: {
+                contentBlockIndex: index,
+                start: { toolUse: { toolUseId: call.id, name: "bash" } }
+              }
+            }
+            if (call.input !== "") {
+              yield { contentBlockDelta: { contentBlockIndex: index, delta: { toolUse: { input: call.input } } } }
+            }
+            yield { contentBlockStop: { contentBlockIndex: index } }
+          }
+          yield { messageStop: { stopReason: "max_tokens" as const } }
+          yield {
+            metadata: { usage: { inputTokens: 10, outputTokens: 4, totalTokens: 14 }, metrics: { latencyMs: 1 } }
+          }
+        })()
+      })
+    }
+  })
+  const parts = await Effect.runPromise(
+    LanguageModel.streamText({
+      prompt: "Run pwd",
+      toolkit: bash,
+      disableToolCallResolution: true
+    }).pipe(Stream.runCollect, Effect.provide(layer.pipe(Layer.provide(FetchHttpClient.layer))))
+  )
+  expect(parts.filter((part) => part.type === "tool-call")).toMatchObject([{
+    id: "complete",
+    name: "bash",
+    params: { command: "pwd" }
+  }])
+  expect(parts.find((part) => part.type === "finish")).toMatchObject({
+    reason: "length",
+    usage: { inputTokens: { total: 10 }, outputTokens: { total: 4 } },
+    metadata: { bedrock: { usage: { inputTokens: 10, outputTokens: 4, totalTokens: 14 } } }
+  })
+})
+
 for (const interleaved of [false, true]) {
   test(`Bedrock preserves signed and redacted reasoning beside rejected calls (interleaved: ${interleaved})`, async () => {
     const inputs: Array<ConverseStreamCommandInput> = []

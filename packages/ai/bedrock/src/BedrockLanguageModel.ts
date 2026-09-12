@@ -17,6 +17,7 @@ import * as Effect from "effect/Effect"
 import * as Encoding from "effect/Encoding"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
+import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
 import * as Stream from "effect/Stream"
 import type { Prompt, Response } from "effect/unstable/ai"
@@ -353,12 +354,16 @@ class BedrockResponse {
       if (event.metadata !== undefined) {
         if (this.stop === undefined) return yield* failure("Bedrock usage arrived before message completion")
         const reason = stopReason(this.stop)
-        if (reason === "stop" || reason === "tool-calls") {
+        if (reason === "stop" || reason === "tool-calls" || reason === "length") {
           for (const [, call] of [...this.calls].sort(([a], [b]) => a - b)) {
-            const params = yield* Effect.try({
-              try: () => Tool.unsafeSecureJsonParse(call.text === "" ? "{}" : call.text),
+            const params = yield* Effect.result(Effect.try({
+              try: () => Tool.unsafeSecureJsonParse(call.text === "" && reason !== "length" ? "{}" : call.text),
               catch: providerError
-            })
+            }))
+            if (Result.isFailure(params)) {
+              if (reason === "length") continue
+              return yield* Effect.fail(params.failure)
+            }
             const tool = this.tools.find((tool) => tool.name === call.name)
             if (tool === undefined) {
               return yield* AiError.make({
@@ -370,7 +375,7 @@ class BedrockResponse {
                 })
               })
             }
-            parts.push({ type: "tool-call", id: call.id, name: tool.name, params })
+            parts.push({ type: "tool-call", id: call.id, name: tool.name, params: params.success })
           }
         }
         const usage = event.metadata.usage
