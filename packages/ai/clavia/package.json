@@ -1,6 +1,6 @@
 {
   "name": "@tardie/ai",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "type": "module",
   "license": "MIT",
   "description": "Shared provider construction for Clavia Effect AI providers.",
@@ -40,6 +40,6 @@
     "effect": "workspace:^"
   },
   "peerDependencies": {
-    "effect": "4.0.0-rc.113"
+    "effect": "4.0.0-rc.115"
   }
 }

@@ -2,7 +2,7 @@
 
 Base: `effect@4.0.0-rc.113`. Publishing branch: `clavia/ai-providers`.
 
-This fork carries provider changes for Tardigrade. The Effect runtime includes upstream declaration fix #8162. The provider packages use the `@clavia` scope. `@tardie/ai` supplies their shared factory wrapper.
+This fork carries provider changes for Tardigrade. Consumers use upstream `effect@4.0.0-rc.115`, which includes declaration fix #8162. The provider packages use the `@tardie` scope. `@tardie/ai` supplies their shared factory wrapper.
 
 ## Ported changes
 
@@ -72,3 +72,9 @@ Validation passes: 230 provider tests, 28 packed consumer tests, workspace typec
 ## Publication
 
 The initial release contains `@tardie/effect@4.0.0-rc.113`, `@tardie/ai@0.0.1`, and three providers at `4.0.0-rc.113-clavia.0`. Registry archive integrity matches the checked packages. Each package trusts `clavia-labs/effect`, workflow `clavia-publish.yml`, environment `npm`, for GitHub publication. No npm token secret is required.
+
+## Upstream runtime compatibility
+
+The provider compatibility release uses `@tardie/ai@0.0.2` and provider suffix `rc.113-clavia.1`, with exact upstream Effect rc.115 peers. Provider source remains based on rc.113. The release script publishes four provider packages and checks their archives against the published upstream runtime. It no longer packages or publishes `@tardie/effect`.
+
+The packed consumer imports every public runtime entrypoint with `skipLibCheck: false`, runs the shared provider contracts, and checks that npm resolves one upstream runtime.
