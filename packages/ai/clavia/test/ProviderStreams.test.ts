@@ -163,7 +163,13 @@ for (const provider of ["openai", "anthropic", "compat", "openrouter"] as const)
           assert.strictEqual(finish?.reason, "length")
           assert.strictEqual(finish?.usage.inputTokens.total, 10)
           assert.strictEqual(finish?.usage.outputTokens.total, 5)
-          if (provider === "compat") assert.deepStrictEqual(parts.filter((part) => part.type === "tool-call"), [])
+          if (provider !== "openrouter") {
+            const completeIds = scenario === "length" ? ["a", "b", "c"] : ["a", "c"]
+            assert.deepStrictEqual(
+              parts.filter((part) => part.type === "tool-call").map(({ id, name, params }) => ({ id, name, params })),
+              completeIds.map((id) => ({ id, name: "read", params: { path: id } }))
+            )
+          }
         }))
     }
 
