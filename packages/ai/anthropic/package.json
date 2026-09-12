@@ -1,6 +1,6 @@
 {
   "name": "@tardie/ai-anthropic",
-  "version": "4.0.0-rc.113-clavia.0",
+  "version": "4.0.0-rc.113-clavia.1",
   "type": "module",
   "license": "MIT",
   "description": "An Anthropic provider integration for Effect AI SDK",
@@ -64,7 +64,7 @@
     "effect": "workspace:^"
   },
   "peerDependencies": {
-    "effect": "4.0.0-rc.113"
+    "effect": "4.0.0-rc.115"
   },
   "dependencies": {
     "@tardie/ai": "workspace:*"

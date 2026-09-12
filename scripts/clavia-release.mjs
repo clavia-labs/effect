@@ -15,30 +15,14 @@ const providers = ["clavia", "openai", "anthropic", "openai-compat"].map((direct
   assert.equal(manifest.name, name)
   return { path, manifest, file: join(destination, `${name.slice(1).replace("/", "-")}-${manifest.version}.tgz`) }
 })
-const runtimePath = join(root, "packages/effect")
-const runtimeManifest = JSON.parse(readFileSync(join(runtimePath, "package.json"), "utf8"))
-const runtime = {
-  path: runtimePath,
-  manifest: { ...runtimeManifest, name: "@tardie/effect", repository: { ...runtimeManifest.repository, url: "https://github.com/clavia-labs/effect.git" } },
-  file: join(destination, `tardie-effect-${runtimeManifest.version}.tgz`)
-}
-const targets = [runtime, ...providers]
+const effectVersion = providers[0].manifest.peerDependencies.effect
+const targets = providers
 const run = (command, args, cwd = root) => execFileSync(command, args, { cwd, stdio: "inherit" })
 const action = process.argv[2]
 assert.ok(["pack", "check", "publish"].includes(action), "Expected pack, check, or publish")
 
 if (action === "pack") {
   mkdirSync(destination, { recursive: true })
-  const staging = realpathSync(mkdtempSync(join(tmpdir(), "tardie-effect-pack-")))
-  run("pnpm", ["pack", "--pack-destination", staging], runtime.path)
-  run("tar", ["-xf", join(staging, `effect-${runtime.manifest.version}.tgz`), "-C", staging])
-  const packagePath = join(staging, "package")
-  const manifestPath = join(packagePath, "package.json")
-  const packed = JSON.parse(readFileSync(manifestPath, "utf8"))
-  packed.name = runtime.manifest.name
-  packed.repository = runtime.manifest.repository
-  writeFileSync(manifestPath, JSON.stringify(packed, null, 2) + "\n")
-  run("npm", ["pack", "--ignore-scripts", "--pack-destination", destination], packagePath)
   for (const target of providers) run("pnpm", ["pack", "--pack-destination", destination], target.path)
 }
 
@@ -46,7 +30,7 @@ for (const target of targets) {
   const manifest = JSON.parse(execFileSync("tar", ["-xOf", target.file, "package/package.json"], { encoding: "utf8" }))
   assert.equal(manifest.name, target.manifest.name)
   assert.equal(manifest.version, target.manifest.version)
-  if (target !== runtime) assert.equal(manifest.peerDependencies.effect, runtime.manifest.version)
+  assert.equal(manifest.peerDependencies.effect, effectVersion)
   assert.equal(manifest.repository.url, "https://github.com/clavia-labs/effect.git")
   for (const [name, version] of Object.entries(manifest.dependencies ?? {})) {
     assert.ok(!name.startsWith("@effect/ai-"), `Unexpected upstream provider dependency: ${name}`)
@@ -61,15 +45,15 @@ if (action === "check") {
   const consumer = realpathSync(mkdtempSync(join(tmpdir(), "tardie-ai-consumer-")))
   writeFileSync(join(consumer, "package.json"), JSON.stringify({
     name: "clavia-package-check", private: true, type: "module",
-    dependencies: { effect: `file:./${basename(runtime.file)}` }
+    dependencies: { effect: effectVersion }
   }))
   for (const target of targets) cpSync(target.file, join(consumer, basename(target.file)))
-  run("npm", ["install", "--ignore-scripts", "--no-audit", "--no-fund", ...providers.map((target) => `./${basename(target.file)}`), "@effect/vitest@4.0.0-rc.113", "vitest@5.0.0", "typescript@7.0.2", "@types/node@24"], consumer)
+  run("npm", ["install", "--ignore-scripts", "--no-audit", "--no-fund", ...providers.map((target) => `./${basename(target.file)}`), `@effect/vitest@${effectVersion}`, "vitest@5.0.0", "typescript@7.0.2", "@types/node@24"], consumer)
   const installedRuntime = JSON.parse(readFileSync(join(consumer, "node_modules/effect/package.json"), "utf8"))
-  assert.equal(installedRuntime.name, runtime.manifest.name)
-  assert.equal(installedRuntime.version, runtime.manifest.version)
+  assert.equal(installedRuntime.name, "effect")
+  assert.equal(installedRuntime.version, effectVersion)
   cpSync(join(root, "packages/ai/clavia/test"), join(consumer, "test"), { recursive: true })
-  const entrypoints = Object.entries(runtime.manifest.publishConfig.exports)
+  const entrypoints = Object.entries(installedRuntime.exports)
     .filter(([key, value]) => value !== null && key !== "./package.json" && !key.includes("*"))
     .map(([key]) => key === "." ? "effect" : `effect/${key.slice(2)}`)
   writeFileSync(join(consumer, "test/runtime.ts"), entrypoints.map((name, index) => `export * as runtime${index} from "${name}"`).join("\n"))
