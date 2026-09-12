@@ -1,6 +1,6 @@
 {
   "name": "@tardie/ai-openai",
-  "version": "4.0.0-rc.113-clavia.1",
+  "version": "4.0.0-rc.113-clavia.2",
   "type": "module",
   "license": "MIT",
   "description": "An OpenAI provider integration for Effect AI SDK",

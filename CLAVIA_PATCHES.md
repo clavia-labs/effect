@@ -78,3 +78,9 @@ The initial release contains `@tardie/effect@4.0.0-rc.113`, `@tardie/ai@0.0.1`, 
 The provider compatibility release uses `@tardie/ai@0.0.2` and provider suffix `rc.113-clavia.1`, with exact upstream Effect rc.115 peers. Provider source remains based on rc.113. The release script publishes four provider packages and checks their archives against the published upstream runtime. It no longer packages or publishes `@tardie/effect`.
 
 The packed consumer imports every public runtime entrypoint with `skipLibCheck: false`, runs the shared provider contracts, and checks that npm resolves one upstream runtime.
+
+## Responses stream sentinel
+
+OpenRouter can append `[DONE]` after its terminal response event. The OpenAI client handles the sentinel before schema decoding, including when both arrive in one network chunk. Response events retain schema validation. A bare sentinel produces no completion event, and malformed JSON before completion still fails.
+
+`packages/ai/openai/test/OpenAiClient.test.ts` checks completed, incomplete, and failed terminal events with combined and separate chunks. Tardigrade also checks the installed package with a combined-chunk fixture. The fix ships in `@tardie/ai-openai@4.0.0-rc.113-clavia.2`.
