@@ -592,6 +592,13 @@ export const make = Effect.fnUntraced(function*({ model, config: providerConfig 
       readonly options: LanguageModel.ProviderOptions
       readonly toolNameMapper: Tool.NameMapper<Tools>
     }): Effect.fn.Return<CreateResponseRequestJson, AiError.AiError> {
+      if (config.n !== undefined && config.n !== 1) {
+        return yield* AiError.make({
+          module: "OpenAiLanguageModel",
+          method: "makeRequest",
+          reason: AiError.InvalidRequestError.make({ description: "LanguageModel accepts one completion; n must be 1" })
+        })
+      }
       const include = new Set<IncludeEnum>()
       const capabilities = getModelCapabilities(config.model!)
       const messages = yield* prepareMessages({
@@ -1271,6 +1278,13 @@ const makeStreamResponse = Effect.fnUntraced(
           })
         }
 
+        if (event.choices.some((choice) => choice.index !== 0)) {
+          return yield* AiError.make({
+            module: "OpenAiLanguageModel",
+            method: "streamText",
+            reason: AiError.InvalidOutputError.make({ description: "Expected completion choice index 0" })
+          })
+        }
         const choice = event.choices[0]
         if (Predicate.isUndefined(choice)) {
           return parts

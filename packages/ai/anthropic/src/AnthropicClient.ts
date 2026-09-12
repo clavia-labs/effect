@@ -28,6 +28,22 @@ import { AnthropicConfig } from "./AnthropicConfig.ts"
 import * as Generated from "./Generated.ts"
 import * as Errors from "./internal/errors.ts"
 
+// MessageDeltaEvent accepts partial cumulative usage updates (ProviderStreams.test.ts).
+// https://platform.claude.com/docs/en/build-with-claude/streaming
+const MessageDeltaEvent = Schema.Struct({
+  ...Generated.BetaMessageDeltaEvent.fields,
+  usage: Schema.Struct({
+    ...Generated.BetaMessageDeltaEvent.fields.usage.fields,
+    input_tokens: Schema.optionalKey(Generated.BetaMessageDeltaEvent.fields.usage.fields.input_tokens),
+    cache_read_input_tokens: Schema.optionalKey(
+      Generated.BetaMessageDeltaEvent.fields.usage.fields.cache_read_input_tokens
+    ),
+    cache_creation_input_tokens: Schema.optionalKey(
+      Generated.BetaMessageDeltaEvent.fields.usage.fields.cache_creation_input_tokens
+    )
+  })
+})
+
 // =============================================================================
 // Service Interface
 // =============================================================================
@@ -103,7 +119,7 @@ export interface Service {
  */
 export type MessageStreamEvent =
   | typeof Generated.BetaMessageStartEvent.Type
-  | typeof Generated.BetaMessageDeltaEvent.Type
+  | typeof MessageDeltaEvent.Type
   | typeof Generated.BetaMessageStopEvent.Type
   | typeof Generated.BetaContentBlockStartEvent.Type
   | typeof Generated.BetaContentBlockDeltaEvent.Type
@@ -292,7 +308,7 @@ export const make = Effect.fnUntraced(
     const MessageEvent = Schema.Union([
       PingEvent,
       Generated.BetaMessageStartEvent,
-      Generated.BetaMessageDeltaEvent,
+      MessageDeltaEvent,
       Generated.BetaMessageStopEvent,
       Generated.BetaContentBlockStartEvent,
       Generated.BetaContentBlockDeltaEvent,

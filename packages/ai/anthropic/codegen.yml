@@ -1,10 +1,10 @@
 # yaml-language-server: $schema=../../tools/ai-codegen/codegen.schema.json
-spec:
-  type: stainless-stats
-  statsUrl: https://raw.githubusercontent.com/anthropics/anthropic-sdk-typescript/main/.stats.yml
+spec: https://storage.googleapis.com/stainless-sdk-openapi-specs/anthropic%2Fanthropic-fee5dc365a4948e68639582c5301d4d0666c7d85a11628d7917e1477f76d3da1.yml
 output: src/Generated.ts
 name: AnthropicClient
 patches:
+  # Effort levels documented at https://platform.claude.com/docs/en/build-with-claude/effort
+  - '[{"op":"replace","path":"/components/schemas/BetaEffortLevel/enum","value":["low","medium","high","xhigh","max"]},{"op":"replace","path":"/components/schemas/EffortLevel/enum","value":["low","medium","high","xhigh","max"]}]'
   # Make iterations and speed optional in BetaUsage, iterations optional in BetaMessageDeltaUsage (API may omit these fields)
   - '[{"op":"remove","path":"/components/schemas/BetaUsage/required/9"},{"op":"remove","path":"/components/schemas/BetaUsage/required/5"},{"op":"remove","path":"/components/schemas/BetaMessageDeltaUsage/required/3"}]'
 header: |

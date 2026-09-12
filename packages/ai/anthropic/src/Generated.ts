@@ -329,10 +329,11 @@ export const BetaDeleteSkillVersionResponse = Schema.Struct({
 export type BetaDirectCaller = { readonly "type": "direct" }
 export const BetaDirectCaller = Schema.Struct({ "type": Schema.Literal("direct").annotate({ "title": "Type" }) })
   .annotate({ "title": "DirectCaller", "description": "Tool invocation directly from the model." })
-export type BetaEffortLevel = "low" | "medium" | "high" | "max"
-export const BetaEffortLevel = Schema.Literals(["low", "medium", "high", "max"]).annotate({
+export type BetaEffortLevel = "low" | "medium" | "high" | "xhigh" | "max"
+export const BetaEffortLevel = Schema.Literals(["low", "medium", "high", "xhigh", "max"]).annotate({
   "title": "EffortLevel",
-  "description": "All possible effort levels."
+  "description": "All possible effort levels.",
+  "identifier": "BetaEffortLevel"
 })
 export type BetaExpiredResult = { readonly "type": "expired" }
 export const BetaExpiredResult = Schema.Struct({
@@ -1784,10 +1785,11 @@ export const DirectCaller = Schema.Struct({ "type": Schema.Literal("direct").ann
   "title": "DirectCaller",
   "description": "Tool invocation directly from the model."
 })
-export type EffortLevel = "low" | "medium" | "high" | "max"
-export const EffortLevel = Schema.Literals(["low", "medium", "high", "max"]).annotate({
+export type EffortLevel = "low" | "medium" | "high" | "xhigh" | "max"
+export const EffortLevel = Schema.Literals(["low", "medium", "high", "xhigh", "max"]).annotate({
   "title": "EffortLevel",
-  "description": "All possible effort levels."
+  "description": "All possible effort levels.",
+  "identifier": "EffortLevel"
 })
 export type ExpiredResult = { readonly "type": "expired" }
 export const ExpiredResult = Schema.Struct({
