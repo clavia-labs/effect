@@ -106,3 +106,9 @@ Anthropic derives its streaming delta schema from the generated schema and permi
 `@tardie/ai-openrouter@4.0.0-rc.113-clavia.1` supplies the native OpenRouter LanguageModel. The shared constructor applies scoped response formats and deferred tool validation. The stream decoder retains routed-provider identity, including when it appears before the usage chunk. Tool arguments are parsed after completion; malformed JSON produces a typed error after response evidence, and token limits retain usage without dispatching partial calls.
 
 `packages/ai/clavia/test/ProviderStreams.test.ts` extends the shared contracts to OpenRouter, including reasoning replay after JSON restoration. Tardigrade tests persistence of native reasoning details, routing metadata, and cost evidence. Provider-native reasoning details are kept in the encoded Effect Prompt, as described in [OpenRouter reasoning replay](https://openrouter.ai/docs/guides/best-practices/reasoning-tokens).
+
+## Provider configuration schemas (unreleased)
+
+Each provider exports `ConfigSchema` and `ModelConfigSchema` from its language-model module. `ConfigSchema.Encoded` supplies the configuration service type. `ModelConfigSchema` follows the options accepted alongside a model identifier. OpenAI, Anthropic, and OpenRouter derive fields from their generated request schemas. Compatible providers retain extension fields. Bedrock validates Converse settings without importing the AWS client at runtime.
+
+`packages/ai/clavia/test/ConfigSchema.test.ts` checks JSON round trips, optional settings, invalid values, and unknown fields. The adjacent `ConfigSchema.types.ts` and `packages/ai/bedrock/test/ConfigSchema.types.ts` check compatibility with the previous provider contracts, including the AWS SDK input type. Tardigrade has not yet replaced its configuration allowlists with these schemas.

@@ -21,8 +21,9 @@ import * as Redactable from "effect/Redactable"
 import * as Schema from "effect/Schema"
 import * as AST from "effect/SchemaAST"
 import * as Stream from "effect/Stream"
+import * as Struct from "effect/Struct"
 import type { Span } from "effect/Tracer"
-import type { DeepMutable, Mutable, Simplify } from "effect/Types"
+import type { DeepMutable, Mutable } from "effect/Types"
 import * as AiError from "effect/unstable/ai/AiError"
 import * as IdGenerator from "effect/unstable/ai/IdGenerator"
 import * as LanguageModel from "effect/unstable/ai/LanguageModel"
@@ -36,7 +37,7 @@ import type * as HttpClientResponse from "effect/unstable/http/HttpClientRespons
 import * as Generated from "./Generated.ts"
 import * as InternalUtilities from "./internal/utilities.ts"
 import { OpenAiClient } from "./OpenAiClient.ts"
-import type * as OpenAiSchema from "./OpenAiSchema.ts"
+import * as OpenAiSchema from "./OpenAiSchema.ts"
 import { addGenAIAnnotations } from "./OpenAiTelemetry.ts"
 import type * as OpenAiTool from "./OpenAiTool.ts"
 
@@ -80,47 +81,33 @@ type PromptCacheBreakpoint = { readonly mode: "explicit" }
  * @category services
  * @since 4.0.0
  */
-export class Config extends Context.Service<
-  Config,
-  Simplify<
-    & Partial<
-      Omit<
-        typeof OpenAiSchema.CreateResponse.Encoded,
-        "input" | "tools" | "tool_choice" | "stream" | "text"
-      >
-    >
-    & {
-      /**
-       * File ID prefixes used to identify file IDs in Responses API.
-       * When undefined, all file data is treated as base64 content.
-       *
-       * Examples:
-       * - OpenAI: ['file-'] for IDs like 'file-abc123'
-       * - Azure OpenAI: ['assistant-'] for IDs like 'assistant-abc123'
-       */
-      readonly fileIdPrefixes?: ReadonlyArray<string> | undefined
-      /**
-       * Configuration options for a text response from the model.
-       */
-      readonly text?: {
-        /**
-         * Constrains the verbosity of the model's response. Lower values will
-         * result in more concise responses, while higher values will result in
-         * more verbose responses.
-         *
-         * Defaults to `"medium"`.
-         */
-        readonly verbosity?: "low" | "medium" | "high" | undefined
-      } | undefined
-      /**
-       * Whether to use strict JSON schema validation.
-       *
-       * Defaults to `true`.
-       */
-      readonly strictJsonSchema?: boolean | undefined
-    }
-  >
->()("@effect/ai-openai/OpenAiLanguageModel/Config") {}
+export class Config
+  extends Context.Service<Config, typeof ConfigSchema.Encoded>()("@effect/ai-openai/OpenAiLanguageModel/Config")
+{}
+
+/**
+ * ConfigSchema validates provider configuration (../../clavia/test/ConfigSchema.test.ts).
+ *
+ * @category schemas
+ * @since 4.0.0
+ */
+export const ConfigSchema = Schema.Struct({
+  ...Struct.map(
+    Struct.omit(OpenAiSchema.CreateResponse.fields, ["input", "tools", "tool_choice", "stream", "text"]),
+    Schema.optionalKey
+  ),
+  fileIdPrefixes: Schema.optional(Schema.Array(Schema.String)),
+  text: Schema.optional(Schema.Struct({ verbosity: Schema.optional(Schema.Literals(["low", "medium", "high"])) })),
+  strictJsonSchema: Schema.optional(Schema.Boolean)
+})
+
+/**
+ * ModelConfigSchema validates configuration supplied alongside a model identifier.
+ *
+ * @category schemas
+ * @since 4.0.0
+ */
+export const ModelConfigSchema = ConfigSchema.mapFields(Struct.omit(["model"]))
 
 // =============================================================================
 // Provider Options / Metadata

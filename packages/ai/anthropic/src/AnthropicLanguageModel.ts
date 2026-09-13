@@ -22,8 +22,9 @@ import * as Redactable from "effect/Redactable"
 import * as Schema from "effect/Schema"
 import * as SchemaAST from "effect/SchemaAST"
 import * as Stream from "effect/Stream"
+import * as Struct from "effect/Struct"
 import type { Span } from "effect/Tracer"
-import type { Mutable, Simplify } from "effect/Types"
+import type { Mutable } from "effect/Types"
 import * as AiError from "effect/unstable/ai/AiError"
 import { toCodecAnthropic } from "effect/unstable/ai/AnthropicStructuredOutput"
 import * as IdGenerator from "effect/unstable/ai/IdGenerator"
@@ -37,7 +38,7 @@ import type * as HttpClientResponse from "effect/unstable/http/HttpClientRespons
 import { AnthropicClient, type MessageStreamEvent } from "./AnthropicClient.ts"
 import { addGenAIAnnotations } from "./AnthropicTelemetry.ts"
 import type { AnthropicTool } from "./AnthropicTool.ts"
-import type * as Generated from "./Generated.ts"
+import * as Generated from "./Generated.ts"
 import * as InternalUtilities from "./internal/utilities.ts"
 
 /**
@@ -69,41 +70,42 @@ export type Model = (typeof Generated.Model)["members"][1]["Encoded"]
  * @category services
  * @since 4.0.0
  */
-export class Config extends Context.Service<
-  Config,
-  Simplify<
-    & Partial<
-      Omit<
-        typeof Generated.BetaCreateMessageParams.Encoded,
-        "messages" | "output_config" | "tools" | "tool_choice" | "stream"
-      >
-    >
-    & {
-      readonly output_config?: {
-        readonly effort?: typeof Generated.BetaEffortLevel.Encoded | null
-      }
-      /**
-       * Disables Claude's ability to use multiple tools to respond to a query.
-       */
-      readonly disableParallelToolCalls?: boolean | undefined
-      /**
-       * Whether the model supports native structured outputs.
-       *
-       * Overrides automatic capability detection based on the model identifier.
-       */
-      readonly structuredOutputs?: boolean | undefined
-      /**
-       * Whether to use strict JSON schema validation for tool calls.
-       *
-       * **Details**
-       *
-       * Only applies to models that support structured outputs. Defaults to
-       * `true` when structured outputs are supported.
-       */
-      readonly strictJsonSchema?: boolean | undefined
-    }
-  >
->()("@effect/ai-anthropic/AnthropicLanguageModel/Config") {}
+export class Config
+  extends Context.Service<Config, typeof ConfigSchema.Encoded>()("@effect/ai-anthropic/AnthropicLanguageModel/Config")
+{}
+
+/**
+ * ConfigSchema validates provider configuration (../../clavia/test/ConfigSchema.test.ts).
+ *
+ * @category schemas
+ * @since 4.0.0
+ */
+export const ConfigSchema = Schema.Struct({
+  ...Struct.map(
+    Struct.omit(Generated.BetaCreateMessageParams.fields, [
+      "messages",
+      "output_config",
+      "tools",
+      "tool_choice",
+      "stream"
+    ]),
+    Schema.optionalKey
+  ),
+  output_config: Schema.optionalKey(
+    Schema.Struct({ effort: Schema.optionalKey(Schema.NullOr(Generated.BetaEffortLevel)) })
+  ),
+  disableParallelToolCalls: Schema.optional(Schema.Boolean),
+  structuredOutputs: Schema.optional(Schema.Boolean),
+  strictJsonSchema: Schema.optional(Schema.Boolean)
+})
+
+/**
+ * ModelConfigSchema validates configuration supplied alongside a model identifier.
+ *
+ * @category schemas
+ * @since 4.0.0
+ */
+export const ModelConfigSchema = ConfigSchema.mapFields(Struct.omit(["model"]))
 
 // =============================================================================
 // Provider Options / Metadata
