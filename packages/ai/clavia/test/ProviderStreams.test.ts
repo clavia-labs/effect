@@ -2,6 +2,7 @@ import { assert, describe, it } from "@effect/vitest"
 import { AnthropicClient, AnthropicLanguageModel } from "@tardie/ai-anthropic"
 import { OpenAiClient, OpenAiLanguageModel } from "@tardie/ai-openai"
 import { OpenAiClient as CompatClient, OpenAiLanguageModel as CompatLanguageModel } from "@tardie/ai-openai-compat"
+import { OpenRouterClient, OpenRouterLanguageModel } from "@tardie/ai-openrouter"
 import { ResponseFormat } from "@tardie/ai/LanguageModel"
 import { Effect, Layer, Redacted, Result, Schema, Stream } from "effect"
 import { LanguageModel, Prompt, Response as AiResponse, Tool, Toolkit } from "effect/unstable/ai"
@@ -27,7 +28,7 @@ const fixture = (
   const events = overrides.events ?? eventsFor(provider, scenario, reasoningField)
   const text =
     events.map((event, sequence_number) => `data: ${JSON.stringify({ sequence_number, ...event })}\n\n`).join("") +
-    (provider === "compat" ? "data: [DONE]\n\n" : "")
+    ((provider === "compat" || provider === "openrouter") ? "data: [DONE]\n\n" : "")
   const bytes = new TextEncoder().encode(text)
   const http = HttpClient.makeWith(
     Effect.fnUntraced(function*(requestEffect) {
@@ -61,6 +62,10 @@ const fixture = (
     ? AnthropicLanguageModel.layer({ model: "fixture", config: { structuredOutputs: true, ...overrides.config } }).pipe(
       Layer.provide(AnthropicClient.layer(client))
     )
+    : provider === "openrouter"
+    ? OpenRouterLanguageModel.layer({ model: "fixture", config: overrides.config }).pipe(
+      Layer.provide(OpenRouterClient.layer(client))
+    )
     : CompatLanguageModel.layer({ model: "fixture", config: overrides.config }).pipe(
       Layer.provide(CompatClient.layer(client))
     )
@@ -78,7 +83,7 @@ const fixture = (
   return { stream, requests }
 }
 
-for (const provider of ["openai", "anthropic", "compat"] as const) {
+for (const provider of ["openai", "anthropic", "compat", "openrouter"] as const) {
   describe(provider, () => {
     it.effect("validates native dynamic tools without a provider bypass", () =>
       Effect.gen(function*() {
@@ -107,7 +112,13 @@ for (const provider of ["openai", "anthropic", "compat"] as const) {
           assert.strictEqual(finish?.reason, "tool-calls")
           assert.strictEqual(finish?.usage.inputTokens.total, 10)
           assert.strictEqual(finish?.usage.outputTokens.total, 5)
-          if (provider !== "anthropic") assert.strictEqual(finish?.metadata.openai?.usage?.cost, 0.5)
+          if (provider === "openrouter") {
+            assert.strictEqual(finish?.metadata.openrouter?.provider, "Anthropic")
+            assert.strictEqual(finish?.metadata.openrouter?.usage?.cost, 0.5)
+          }
+          if (provider === "openai" || provider === "compat") {
+            assert.strictEqual(finish?.metadata.openai?.usage?.cost, 0.5)
+          }
           const wire = Schema.decodeUnknownSync(Schema.Record(Schema.String, Schema.Unknown))(requests[0])
           if (provider === "openai") {
             assert.deepStrictEqual(
@@ -125,7 +136,7 @@ for (const provider of ["openai", "anthropic", "compat"] as const) {
               "json_schema"
             )
           }
-          if (provider === "compat") {
+          if (provider === "compat" || provider === "openrouter") {
             assert.deepStrictEqual(
               Schema.decodeUnknownSync(Schema.Struct({ response_format: Schema.Struct({ type: Schema.String }) }))(wire)
                 .response_format.type,
@@ -172,7 +183,7 @@ for (const provider of ["openai", "anthropic", "compat"] as const) {
         )
         assert.strictEqual(result._tag, "Failure")
         if (result._tag === "Failure") assert.strictEqual(result.failure.reason._tag, "ToolParameterValidationError")
-        if (provider !== "compat") {
+        if (provider === "openai" || provider === "anthropic") {
           assert.strictEqual(seen.find((part) => part.type === "finish")?.usage.outputTokens.total, 5)
         }
       }))
@@ -207,6 +218,10 @@ for (const provider of ["openai", "anthropic", "compat"] as const) {
           const replay = JSON.stringify(requests[1])
           if (provider === "openai") assert.include(replay, "\"encrypted_content\":\"opaque-a\"")
           if (provider === "anthropic") assert.include(replay, "\"signature\":\"signed\"")
+          if (provider === "openrouter") {
+            assert.include(replay, "\"signature\":\"signed\"")
+            assert.include(replay, "\"reasoning_details\":")
+          }
           if (provider === "compat") assert.include(replay, `"${field}":"Check"`)
           for (const id of ["a", "b", "c"]) {
             assert.include(replay, `"${provider === "openai" ? "call_id" : "id"}":"${id}"`)

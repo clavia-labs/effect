@@ -1,6 +1,6 @@
 # Publish Tardie AI packages
 
-The `clavia/ai-providers` branch publishes five AI packages. Each package requires upstream `effect@4.0.0-rc.115`. The release workflow does not publish an Effect runtime.
+The `clavia/ai-providers` branch publishes six AI packages. Each package requires upstream `effect@4.0.0-rc.115`. The release workflow does not publish an Effect runtime.
 
 | Directory                   | npm package                | Version                 |
 | --------------------------- | -------------------------- | ----------------------- |
@@ -9,6 +9,7 @@ The `clavia/ai-providers` branch publishes five AI packages. Each package requir
 | `packages/ai/openai`        | `@tardie/ai-openai`        | `4.0.0-rc.113-clavia.3` |
 | `packages/ai/anthropic`     | `@tardie/ai-anthropic`     | `4.0.0-rc.113-clavia.2` |
 | `packages/ai/openai-compat` | `@tardie/ai-openai-compat` | `4.0.0-rc.113-clavia.2` |
+| `packages/ai/openrouter`    | `@tardie/ai-openrouter`    | `4.0.0-rc.113-clavia.1` |
 
 ## Install packages
 
@@ -21,7 +22,7 @@ The dependency tree must resolve to one Effect runtime. Upstream rc.114 includes
 
 ## Check packages
 
-The **Clavia packages** workflow checks types, lint, and provider tests. It builds the workspace dependencies and packs the five AI packages. A fresh npm consumer installs the archives with upstream Effect and checks declarations with `skipLibCheck: false`. It also runs shared provider tests and checks the dependency tree.
+The **Clavia packages** workflow checks types, lint, and provider tests. It builds the workspace dependencies and packs the six AI packages. A fresh npm consumer installs the archives with upstream Effect and checks declarations with `skipLibCheck: false`. It also runs shared provider tests and checks the dependency tree.
 
 ```sh
 node scripts/clavia-release.mjs pack

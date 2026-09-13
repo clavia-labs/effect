@@ -15,7 +15,7 @@
   "fixed": [
     [
       "effect",
-      "@effect/ai-openrouter",
+      "@tardie/ai-openrouter",
       "@effect/atom-react",
       "@effect/atom-solid",
       "@effect/atom-vue",
