@@ -108,7 +108,7 @@ export const ConfigSchema = Schema.StructWithRest(
 )
 
 type ConfigOptions = typeof ConfigSchema.Encoded
-type ModelConfig = Omit<ConfigOptions, "model"> & { readonly [x: string]: unknown }
+type ModelConfig = typeof ModelConfigSchema.Encoded
 
 /**
  * ModelConfigSchema validates defaults supplied alongside a model identifier.
