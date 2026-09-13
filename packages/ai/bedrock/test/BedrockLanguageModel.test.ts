@@ -1,7 +1,7 @@
 import type { ConverseStreamCommandInput, ConverseStreamOutput } from "@aws-sdk/client-bedrock-runtime"
 import { ResponseFormat } from "@tardie/ai"
 import { BedrockLanguageModel } from "@tardie/ai-bedrock"
-import { Deferred, Effect, Fiber, Layer, Schema, Stream } from "effect"
+import { Deferred, Effect, Fiber, Layer, Result, Schema, Stream } from "effect"
 import { LanguageModel, Prompt, Tool, Toolkit } from "effect/unstable/ai"
 import { FetchHttpClient } from "effect/unstable/http"
 import { crc32 } from "node:zlib"
@@ -53,7 +53,7 @@ const toolkit = Toolkit.make(
 )
 
 for (const mode of ["removed", "disabled", "enabled"] as const) {
-  test(`Bedrock preserves historical tool data with tools ${mode}`, async () => {
+  test(`Bedrock preserves native tool history or rejects before transport (tools: ${mode})`, async () => {
     const prompt = Prompt.make([
       { role: "user", content: "Read the file" },
       {
@@ -94,14 +94,25 @@ for (const mode of ["removed", "disabled", "enabled"] as const) {
         }
       }
     })
-    await Effect.runPromise(
+    const result = await Effect.runPromise(
       LanguageModel.streamText({
         prompt,
         toolkit: mode === "removed" ? Toolkit.empty : toolkit,
         toolChoice: mode === "disabled" ? "none" : "auto",
         disableToolCallResolution: true
-      }).pipe(Stream.runCollect, Effect.provide(layer.pipe(Layer.provide(FetchHttpClient.layer))))
+      }).pipe(Stream.runCollect, Effect.provide(layer.pipe(Layer.provide(FetchHttpClient.layer))), Effect.result)
     )
+    expect(JSON.stringify(prompt)).toBe(before)
+    if (mode !== "enabled") {
+      expect(Result.isFailure(result)).toBe(true)
+      if (Result.isFailure(result)) {
+        expect(result.failure.reason._tag).toBe("InvalidRequestError")
+        expect(result.failure.message).toContain("tool history")
+      }
+      expect(sent).toBeUndefined()
+      return
+    }
+    expect(Result.isSuccess(result)).toBe(true)
     const parts = sent?.messages?.flatMap((message) => message.content ?? []) ?? []
     expect(parts.find((part) => part.reasoningContent)).toEqual({
       reasoningContent: { reasoningText: { text: "Check the file", signature: "signed" } }
@@ -116,15 +127,8 @@ for (const mode of ["removed", "disabled", "enabled"] as const) {
         }
       }
     ]
-    if (mode === "enabled") {
-      expect(sent?.toolConfig?.tools).toHaveLength(1)
-      expect(parts.filter((part) => part.toolUse || part.toolResult)).toEqual(expected)
-    } else {
-      expect(sent?.toolConfig).toBeUndefined()
-      expect(parts.some((part) => part.toolUse || part.toolResult)).toBe(false)
-      expect(parts.flatMap((part) => part.text?.startsWith("{\"tool") ? [JSON.parse(part.text)] : [])).toEqual(expected)
-    }
-    expect(JSON.stringify(prompt)).toBe(before)
+    expect(sent?.toolConfig?.tools).toHaveLength(1)
+    expect(parts.filter((part) => part.toolUse || part.toolResult)).toEqual(expected)
   })
 }
 
