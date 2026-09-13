@@ -484,3 +484,35 @@ test("Bedrock preserves reported cache buckets and raw usage", async () => {
     metadata: { bedrock: { usage } }
   })
 })
+
+test("Bedrock retains unknown calls beside valid siblings and usage", async () => {
+  const layer = BedrockLanguageModel.layer({
+    model: { model: "claude" },
+    client: {
+      send: async () => ({
+        $metadata: {},
+        stream: (async function*() {
+          for (const event of events()) {
+            const call = event.contentBlockStart?.start?.toolUse
+            if (call?.toolUseId === "b") call.name = "packages"
+            yield event
+          }
+        })()
+      })
+    }
+  })
+  const { parts } = await Effect.runPromise(
+    collectResponse("Read", toolkit).pipe(Effect.provide(layer.pipe(Layer.provide(FetchHttpClient.layer))))
+  )
+  expect(parts.filter((part) => part.type === "tool-call").map((part) => part.id)).toEqual(["a", "c"])
+  expect(parts.find((part) => part.type === "error")?.error).toMatchObject({
+    _tag: "ToolCallValidationError",
+    id: "b",
+    name: "packages",
+    params: { path: 123 },
+    cause: { reason: { _tag: "ToolNotFoundError", toolName: "packages", availableTools: ["read"] } }
+  })
+  expect(parts.find((part) => part.type === "finish")).toMatchObject({
+    usage: { inputTokens: { total: 10 }, outputTokens: { total: 5 } }
+  })
+})

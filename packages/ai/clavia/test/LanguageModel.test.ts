@@ -95,3 +95,27 @@ it.effect("keeps managed and deferred validation isolated without executing defe
       [["a", false], ["b", true], ["c", false]]
     )
   }))
+
+it.effect("returns unknown deferred calls without changing managed resolution", () =>
+  Effect.gen(function*() {
+    const model = yield* make({
+      generateText: () => Effect.succeed([]),
+      streamText: () => Stream.make({ type: "tool-call", id: "unknown", name: "packages", params: {} })
+    })
+    const toolkit = Toolkit.make(Tool.make("execute", { parameters: Schema.Struct({ code: Schema.String }) }))
+    const parts = yield* model.streamText({ prompt: "Read", toolkit, disableToolCallResolution: true }).pipe(
+      Stream.runCollect
+    )
+    assert.strictEqual(parts.length, 1)
+    assert.strictEqual(parts[0]?.type, "error")
+    if (parts[0]?.type === "error") {
+      assert.match(JSON.stringify(parts[0].error), /ToolNotFoundError/)
+      assert.match(JSON.stringify(parts[0].error), /execute/)
+    }
+    const managed = yield* model.streamText({ prompt: "Read", toolkit }).pipe(
+      Stream.runCollect,
+      Effect.provide(toolkit.toLayer({ execute: () => Effect.die("unknown call must not execute") })),
+      Effect.result
+    )
+    assert.strictEqual(managed._tag, "Failure")
+  }))
