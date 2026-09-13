@@ -208,7 +208,7 @@ export const layer = (
   )
 
 /*
- * bedrockRequest preserves tool history as text when no tools are enabled.
+ * bedrockRequest preserves native tool history and rejects it when no tools are enabled.
  * Converse requires toolConfig for native tool blocks (test/BedrockLanguageModel.test.ts).
  */
 const bedrockRequest = (
@@ -231,9 +231,12 @@ const bedrockRequest = (
     const role = message.role === "assistant" ? "assistant" : "user"
     const content = message.content.map((part) => {
       const native = toBedrockPart(part)
-      return tools.length === 0 && (native.toolUse !== undefined || native.toolResult !== undefined)
-        ? { text: JSON.stringify(native) }
-        : native
+      if (tools.length === 0 && (native.toolUse !== undefined || native.toolResult !== undefined)) {
+        throw failure(
+          "Bedrock Converse cannot replay tool history without active tools; native tool blocks require toolConfig"
+        )
+      }
+      return native
     })
     const previous = messages.at(-1)
     if (previous?.role === role) previous.content!.push(...content)

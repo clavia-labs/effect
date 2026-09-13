@@ -112,3 +112,9 @@ Anthropic derives its streaming delta schema from the generated schema and permi
 Each provider exports `ConfigSchema` and `ModelConfigSchema` from its language-model module. `ConfigSchema.Encoded` supplies the configuration service type. `ModelConfigSchema` follows the options accepted alongside a model identifier. OpenAI, Anthropic, and OpenRouter derive fields from their generated request schemas. Compatible providers retain extension fields. Bedrock validates Converse settings without importing the AWS client at runtime.
 
 `packages/ai/clavia/test/ConfigSchema.test.ts` checks JSON round trips, optional settings, invalid values, and unknown fields. The adjacent `ConfigSchema.types.ts` and `packages/ai/bedrock/test/ConfigSchema.types.ts` check compatibility with the previous provider contracts, including the AWS SDK input type. Tardigrade has not yet replaced its configuration allowlists with these schemas.
+
+## Bedrock tool history without active tools
+
+The provider rejects native tool history when the current request has no active tools, including `toolChoice: "none"`. It returns a typed `InvalidRequestError` before calling transport. Historical tool calls and results are not converted to text, and removed tools are not enabled to satisfy Converse validation. Requests with active tools preserve native history and reasoning; the input Prompt remains unchanged.
+
+`packages/ai/bedrock/test/BedrockLanguageModel.test.ts` covers enabled, removed, and disabled tools. The removed and disabled cases failed against the previous fallback before the fix.
