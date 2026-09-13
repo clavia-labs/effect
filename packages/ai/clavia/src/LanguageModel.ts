@@ -37,16 +37,27 @@ const validateToolCall = (options: LanguageModel.ProviderOptions) =>
   Effect.fnUntraced(function*(part: Response.StreamPartEncoded) {
     if (part.type !== "tool-call" || part.providerExecuted === true) return part
     const tool = options.tools.find((tool) => tool.name === part.name)
-    if (tool?.failureMode !== "return") return part
-    const result = yield* Effect.result(
-      Schema.decodeUnknownEffect(Schema.toEncoded(tool.parametersSchema))(part.params)
-    )
-    if (result._tag === "Success") return part
-    const error = AiError.make({
-      module: "LanguageModel",
-      method: "validateToolCall",
-      reason: new AiError.ToolParameterValidationError({ toolName: part.name, description: result.failure.message })
-    })
+    if (tool !== undefined && tool.failureMode !== "return") return part
+    const error = tool === undefined
+      ? AiError.make({
+        module: "LanguageModel",
+        method: "validateToolCall",
+        reason: new AiError.ToolNotFoundError({
+          toolName: part.name,
+          availableTools: options.tools.map((tool) => tool.name)
+        })
+      })
+      : yield* Effect.gen(function*() {
+        const result = yield* Effect.result(
+          Schema.decodeUnknownEffect(Schema.toEncoded(tool.parametersSchema))(part.params)
+        )
+        return result._tag === "Success" ? undefined : AiError.make({
+          module: "LanguageModel",
+          method: "validateToolCall",
+          reason: new AiError.ToolParameterValidationError({ toolName: part.name, description: result.failure.message })
+        })
+      })
+    if (error === undefined) return part
     return {
       type: "error",
       error: {

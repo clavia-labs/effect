@@ -194,7 +194,7 @@ export const layer = (
             catch: providerError
           })
           if (response.stream === undefined) return yield* failure("Bedrock returned no stream")
-          const state = new BedrockResponse(request.tools)
+          const state = new BedrockResponse()
           return Stream.fromAsyncIterable(abortable(response.stream, controller), providerError).pipe(
             Stream.mapEffect((event) => state.accept(event)),
             Stream.flatMap(Stream.fromIterable)
@@ -335,10 +335,6 @@ class BedrockResponse {
   private readonly blocks = new Map<number, Block>()
   private readonly calls = new Map<number, Block>()
   private stop: string | undefined
-  private readonly tools: ReadonlyArray<Tool.Any>
-  constructor(tools: ReadonlyArray<Tool.Any>) {
-    this.tools = tools
-  }
   accept(event: ConverseStreamOutput): Effect.Effect<Array<Response.StreamPartEncoded>, AiError.AiError> {
     return Effect.gen({ self: this }, function*() {
       const parts: Array<Response.StreamPartEncoded> = []
@@ -443,18 +439,7 @@ class BedrockResponse {
               try: () => Tool.unsafeSecureJsonParse(call.text === "" ? "{}" : call.text),
               catch: providerError
             })
-            const tool = this.tools.find((tool) => tool.name === call.name)
-            if (tool === undefined) {
-              return yield* AiError.make({
-                module: "BedrockLanguageModel",
-                method: "streamText",
-                reason: AiError.ToolNotFoundError.make({
-                  toolName: call.name!,
-                  availableTools: this.tools.map((tool) => tool.name)
-                })
-              })
-            }
-            parts.push({ type: "tool-call", id: call.id, name: tool.name, params })
+            parts.push({ type: "tool-call", id: call.id, name: call.name!, params })
           }
         }
         const usage = event.metadata.usage
