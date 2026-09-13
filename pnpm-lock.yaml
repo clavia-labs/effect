@@ -152,9 +152,6 @@ importers:
 
   ai-docs:
     dependencies:
-      '@effect/ai-openrouter':
-        specifier: workspace:*
-        version: link:../packages/ai/openrouter
       '@effect/atom-react':
         specifier: workspace:*
         version: link:../packages/atom/react
@@ -218,6 +215,9 @@ importers:
       '@tardie/ai-openai-compat':
         specifier: workspace:*
         version: link:../packages/ai/openai-compat
+      '@tardie/ai-openrouter':
+        specifier: workspace:*
+        version: link:../packages/ai/openrouter
       effect:
         specifier: workspace:*
         version: link:../packages/effect
@@ -282,6 +282,10 @@ importers:
         version: link:../../effect
 
   packages/ai/openrouter:
+    dependencies:
+      '@tardie/ai':
+        specifier: workspace:*
+        version: link:../clavia
     devDependencies:
       effect:
         specifier: workspace:^
@@ -967,9 +971,6 @@ importers:
 
   scratchpad:
     dependencies:
-      '@effect/ai-openrouter':
-        specifier: workspace:*
-        version: link:../packages/ai/openrouter
       '@effect/opentelemetry':
         specifier: workspace:*
         version: link:../packages/opentelemetry
@@ -1021,6 +1022,9 @@ importers:
       '@tardie/ai-openai-compat':
         specifier: workspace:*
         version: link:../packages/ai/openai-compat
+      '@tardie/ai-openrouter':
+        specifier: workspace:*
+        version: link:../packages/ai/openrouter
       effect:
         specifier: workspace:*
         version: link:../packages/effect

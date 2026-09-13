@@ -1,4 +1,4 @@
-export type Provider = "openai" | "anthropic" | "compat"
+export type Provider = "openai" | "anthropic" | "compat" | "openrouter"
 export type Scenario = "valid" | "invalid" | "malformed" | "length" | "partial-length"
 
 export const eventsFor = (provider: Provider, scenario: Scenario, reasoningField = "reasoning_content") => {
@@ -7,9 +7,24 @@ export const eventsFor = (provider: Provider, scenario: Scenario, reasoningField
     id === "b" && (scenario === "malformed" || scenario === "partial-length")
       ? "{\"path\":"
       : JSON.stringify({ path: id === "b" && scenario === "invalid" ? 123 : id })
-  if (provider === "compat") {
+  if (provider === "compat" || provider === "openrouter") {
     return [
-      { choices: [{ index: 0, delta: { [reasoningField]: "Check" } }] },
+      {
+        choices: [{
+          index: 0,
+          delta: (provider === "openrouter"
+            ? {
+              reasoning_details: [{
+                type: "reasoning.text",
+                text: "Check",
+                signature: "signed",
+                format: "anthropic-claude-v1",
+                index: 0
+              }]
+            }
+            : { [reasoningField]: "Check" })
+        }]
+      },
       {
         choices: [{
           index: 0,
@@ -25,7 +40,14 @@ export const eventsFor = (provider: Provider, scenario: Scenario, reasoningField
       },
       { choices: [{ index: 0, delta: {}, finish_reason: length ? "length" : "tool_calls" }] },
       { choices: [], usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15, cost: 0.5 } }
-    ].map((event) => ({ id: "response", model: "fixture", created: 1, ...event }))
+    ].map((event) => ({
+      id: "response",
+      object: "chat.completion.chunk",
+      model: "fixture",
+      created: 1,
+      provider: "Anthropic",
+      ...event
+    }))
   }
   if (provider === "openai") {
     const reasoning = {

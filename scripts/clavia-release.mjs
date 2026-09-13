@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url"
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..")
 const destination = join(root, "artifacts/clavia")
-const providers = ["clavia", "openai", "anthropic", "openai-compat", "bedrock"].map((directory) => {
+const providers = ["clavia", "openai", "anthropic", "openai-compat", "openrouter", "bedrock"].map((directory) => {
   const path = join(root, "packages/ai", directory)
   const manifest = JSON.parse(readFileSync(join(path, "package.json"), "utf8"))
   const name = directory === "clavia" ? "@tardie/ai" : `@tardie/ai-${directory}`

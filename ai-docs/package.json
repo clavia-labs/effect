@@ -7,7 +7,7 @@
     "@tardie/ai-anthropic": "workspace:*",
     "@tardie/ai-openai": "workspace:*",
     "@tardie/ai-openai-compat": "workspace:*",
-    "@effect/ai-openrouter": "workspace:*",
+    "@tardie/ai-openrouter": "workspace:*",
     "@effect/atom-react": "workspace:*",
     "@effect/atom-solid": "workspace:*",
     "@effect/atom-vue": "workspace:*",

@@ -72,7 +72,7 @@ export interface Service {
  * @category models
  * @since 4.0.0
  */
-export type ChatStreamingResponseChunkData = typeof Generated.ChatStreamingResponse.fields.data.Type
+export type ChatStreamingResponseChunkData = typeof ChatStreamChunk.Type
 
 // =============================================================================
 // Service Identifier
@@ -357,7 +357,12 @@ export const layerConfig = (options?: {
 // Internal Utilities
 // =============================================================================
 
-const ChatStreamingResponseChunkDataFromString = Schema.fromJsonString(Generated.ChatStreamingResponse.fields.data)
+// ChatStreamChunk retains routed-provider identity (clavia/test/ProviderStreams.test.ts).
+const ChatStreamChunk = Schema.Struct({
+  ...Generated.ChatStreamChunk.fields,
+  provider: Schema.optionalKey(Schema.String)
+})
+const ChatStreamingResponseChunkDataFromString = Schema.fromJsonString(ChatStreamChunk)
 const decodeChatStreamingResponseChunkData = Schema.decodeUnknownEffect(ChatStreamingResponseChunkDataFromString)
 
 const decodeChatCompletionSseData = (
