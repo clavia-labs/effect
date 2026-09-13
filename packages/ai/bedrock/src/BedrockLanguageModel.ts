@@ -24,12 +24,88 @@ import * as AiError from "effect/unstable/ai/AiError"
 import * as LanguageModel from "effect/unstable/ai/LanguageModel"
 import * as Tool from "effect/unstable/ai/Tool"
 
-export type ModelConfig = Omit<
-  ConverseStreamCommandInput,
-  "modelId" | "messages" | "system" | "toolConfig" | "outputConfig"
->
+const document: Schema.Codec<NativeJson> = Schema.suspend(() =>
+  Schema.Union([
+    Schema.Null,
+    Schema.Boolean,
+    Schema.Number,
+    Schema.String,
+    Schema.mutable(Schema.Array(document)),
+    Schema.Record(Schema.String, document)
+  ])
+)
+
+/**
+ * ModelConfigSchema validates AWS Converse configuration (../../clavia/test/ConfigSchema.test.ts).
+ *
+ * @category schemas
+ * @since 0.0.2
+ */
+export const ModelConfigSchema = Schema.Struct({
+  inferenceConfig: Schema.optional(Schema.Struct({
+    maxTokens: Schema.optional(Schema.Number),
+    temperature: Schema.optional(Schema.Number),
+    topP: Schema.optional(Schema.Number),
+    stopSequences: Schema.optional(Schema.mutable(Schema.Array(Schema.String)))
+  })),
+  guardrailConfig: Schema.optional(Schema.Struct({
+    guardrailIdentifier: Schema.optional(Schema.String),
+    guardrailVersion: Schema.optional(Schema.String),
+    trace: Schema.optional(Schema.Literals(["disabled", "enabled", "enabled_full"])),
+    streamProcessingMode: Schema.optional(Schema.Literals(["async", "sync"]))
+  })),
+  additionalModelRequestFields: Schema.optional(document),
+  promptVariables: Schema.optional(Schema.Record(
+    Schema.String,
+    Schema.Union([
+      Schema.Struct({ text: Schema.String }),
+      Schema.Struct({ $unknown: Schema.mutable(Schema.Tuple([Schema.String, Schema.Any])) })
+    ])
+  )),
+  additionalModelResponseFieldPaths: Schema.optional(Schema.mutable(Schema.Array(Schema.String))),
+  requestMetadata: Schema.optional(Schema.Record(Schema.String, Schema.String)),
+  performanceConfig: Schema.optional(Schema.Struct({
+    latency: Schema.optional(Schema.Literals(["optimized", "standard"]))
+  })),
+  serviceTier: Schema.optional(Schema.Struct({
+    type: Schema.UndefinedOr(Schema.Literals(["default", "flex", "priority", "reserved"]))
+  }))
+})
+
+/**
+ * ModelConfig contains AWS Converse request defaults.
+ *
+ * @category models
+ * @since 0.0.2
+ */
+export type ModelConfig = typeof ModelConfigSchema.Encoded
+/**
+ * ConfigSchema validates scoped AWS Converse defaults.
+ *
+ * @category schemas
+ * @since 0.0.2
+ */
+export const ConfigSchema = ModelConfigSchema
+/**
+ * Send performs a Converse stream request with cancellation.
+ *
+ * @category models
+ * @since 0.0.1
+ */
 export type Send = (input: ConverseStreamCommandInput, signal: AbortSignal) => Promise<ConverseStreamCommandOutput>
+/**
+ * ClientOptions selects AWS client settings or an injected transport.
+ *
+ * @category models
+ * @since 0.0.1
+ */
 export type ClientOptions = BedrockRuntimeClientConfig | { readonly send: Send }
+/**
+ * Config supplies scoped AWS Converse defaults.
+ *
+ * @category services
+ * @since 0.0.1
+ */
 export class Config extends Context.Service<Config, ModelConfig>()("@tardie/ai-bedrock/Config") {}
 
 type ReasoningOptions = { readonly signature?: string; readonly redactedContent?: string }
@@ -75,7 +151,12 @@ const providerError = (cause: unknown): AiError.AiError => {
   })
 }
 
-// layer supplies Converse streaming through the AWS SDK or an injected transport (test/BedrockLanguageModel.test.ts).
+/**
+ * layer supplies Converse streaming through the AWS SDK or an injected transport (test/BedrockLanguageModel.test.ts).
+ *
+ * @category layers
+ * @since 0.0.1
+ */
 export const layer = (
   options: { readonly client: ClientOptions; readonly model: { readonly model: string; readonly config?: ModelConfig } }
 ) =>

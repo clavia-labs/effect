@@ -22,8 +22,9 @@ import * as Redactable from "effect/Redactable"
 import * as Schema from "effect/Schema"
 import * as AST from "effect/SchemaAST"
 import * as Stream from "effect/Stream"
+import * as Struct from "effect/Struct"
 import type { Span } from "effect/Tracer"
-import type { DeepMutable, Simplify } from "effect/Types"
+import type { DeepMutable } from "effect/Types"
 import * as AiError from "effect/unstable/ai/AiError"
 import * as LanguageModel from "effect/unstable/ai/LanguageModel"
 import * as AiModel from "effect/unstable/ai/Model"
@@ -64,42 +65,61 @@ type ImageDetail = "auto" | "low" | "high"
 // Configuration
 // =============================================================================
 
-type ConfigOptions = Simplify<
-  & Partial<
-    Omit<CreateResponse, "input" | "tools" | "tool_choice" | "stream" | "text">
-  >
-  & {
-    /**
-     * File ID prefixes used to identify file IDs in Responses API.
-     * When undefined, all file data is treated as base64 content.
-     *
-     * Examples:
-     * - OpenAI: ['file-'] for IDs like 'file-abc123'
-     * - Azure OpenAI: ['assistant-'] for IDs like 'assistant-abc123'
-     */
-    readonly fileIdPrefixes?: ReadonlyArray<string> | undefined
-    /**
-     * Configuration options for a text response from the model.
-     */
-    readonly text?: {
-      /**
-       * Constrains the verbosity of the model's response. Lower values will
-       * result in more concise responses, while higher values will result in
-       * more verbose responses.
-       *
-       * Defaults to `"medium"`.
-       */
-      readonly verbosity?: "low" | "medium" | "high" | undefined
-    } | undefined
-    /**
-     * Whether to use strict JSON schema validation.
-     *
-     * Defaults to `true`.
-     */
-    readonly strictJsonSchema?: boolean | undefined
-  }
->
+/**
+ * ConfigSchema validates compatible provider defaults and preserves extension fields.
+ *
+ * @category schemas
+ * @since 4.0.0
+ */
+export const ConfigSchema = Schema.StructWithRest(
+  Schema.Struct({
+    metadata: Schema.optional(Schema.NullOr(Schema.Record(Schema.String, Schema.String))),
+    top_logprobs: Schema.optional(Schema.Number),
+    temperature: Schema.optional(Schema.NullOr(Schema.Number)),
+    top_p: Schema.optional(Schema.NullOr(Schema.Number)),
+    user: Schema.optional(Schema.NullOr(Schema.String)),
+    safety_identifier: Schema.optional(Schema.NullOr(Schema.String)),
+    prompt_cache_key: Schema.optional(Schema.NullOr(Schema.String)),
+    service_tier: Schema.optional(Schema.String),
+    prompt_cache_retention: Schema.optional(Schema.NullOr(Schema.Literals(["in-memory", "24h"]))),
+    previous_response_id: Schema.optional(Schema.NullOr(Schema.String)),
+    model: Schema.optional(Schema.String),
+    reasoning: Schema.optional(Schema.Unknown),
+    background: Schema.optional(Schema.NullOr(Schema.Boolean)),
+    max_output_tokens: Schema.optional(Schema.NullOr(Schema.Number)),
+    max_tool_calls: Schema.optional(Schema.NullOr(Schema.Number)),
+    text: Schema.optional(Schema.Struct({ verbosity: Schema.optional(Schema.Literals(["low", "medium", "high"])) })),
+    truncation: Schema.optional(Schema.NullOr(Schema.Literals(["auto", "disabled"]))),
+    include: Schema.optional(Schema.NullOr(Schema.Array(Schema.Literals([
+      "message.input_image.image_url",
+      "reasoning.encrypted_content",
+      "message.output_text.logprobs"
+    ])))),
+    parallel_tool_calls: Schema.optional(Schema.NullOr(Schema.Boolean)),
+    store: Schema.optional(Schema.NullOr(Schema.Boolean)),
+    instructions: Schema.optional(Schema.NullOr(Schema.String)),
+    conversation: Schema.optional(Schema.NullOr(Schema.String)),
+    modalities: Schema.optional(Schema.Array(Schema.Literals(["text", "audio"]))),
+    seed: Schema.optional(Schema.Number),
+    fileIdPrefixes: Schema.optional(Schema.Array(Schema.String)),
+    strictJsonSchema: Schema.optional(Schema.Boolean)
+  }),
+  [Schema.Record(Schema.String, Schema.Unknown)]
+)
+
+type ConfigOptions = typeof ConfigSchema.Encoded
 type ModelConfig = Omit<ConfigOptions, "model"> & { readonly [x: string]: unknown }
+
+/**
+ * ModelConfigSchema validates defaults supplied alongside a model identifier.
+ *
+ * @category schemas
+ * @since 4.0.0
+ */
+export const ModelConfigSchema = Schema.StructWithRest(
+  ConfigSchema.schema.mapFields(Struct.omit(["model"])),
+  ConfigSchema.records
+)
 
 /**
  * Context service for OpenAI language model configuration.
