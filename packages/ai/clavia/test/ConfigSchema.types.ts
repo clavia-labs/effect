@@ -62,3 +62,10 @@ export type CompatibleFields = Assert<
     keyof Omit<OpenAiClient.CreateResponse, "input" | "tools" | "tool_choice" | "stream" | "text"> | keyof OpenAiExtras
   >
 >
+
+export type CompatibleModelLimit = Assert<
+  Equivalent<
+    NonNullable<Parameters<typeof CompatibleLanguageModel.layer>[0]["config"]>["max_output_tokens"],
+    number | null | undefined
+  >
+>
