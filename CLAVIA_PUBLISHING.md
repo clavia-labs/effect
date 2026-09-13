@@ -35,10 +35,11 @@ node scripts/clavia-release.mjs check
 1. Update each changed package version and its Effect peer dependency.
 2. Push the checked changes to `clavia/ai-providers`.
 3. Run **Clavia packages** on that branch with `publish` enabled. The default npm tag is `next`.
+4. Run `node scripts/clavia-release.mjs verify` to compare the archives with npm without publishing.
 
 The publish job uses npm trusted publishing with GitHub provenance. Each package trusts repository `clavia-labs/effect`, workflow `clavia-publish.yml`, and environment `npm`. No npm token secret is required.
 
-The job publishes the checked archives in dependency order. An existing version is skipped only when its registry integrity matches the archive. A version with different contents fails the job.
+The job publishes the checked archives in dependency order. An existing version is skipped only when its registry checksum matches the archive or its checksum-verified, decompressed tar archive matches byte for byte. This permits gzip headers to differ across operating systems. A version with different contents fails the job.
 
 ## Bedrock first publication
 
