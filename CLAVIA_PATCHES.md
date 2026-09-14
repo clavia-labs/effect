@@ -117,9 +117,9 @@ Each provider exports `ConfigSchema` and `ModelConfigSchema` from its language-m
 
 ## Bedrock tool history without active tools
 
-The provider rejects native tool history when the current request has no active tools, including `toolChoice: "none"`. It returns a typed `InvalidRequestError` before calling transport. Historical tool calls and results are not converted to text, and removed tools are not enabled to satisfy Converse validation. Requests with active tools preserve native history and reasoning; the input Prompt remains unchanged.
+Native history is the default. Requests with no active tools, including `toolChoice: "none"`, reject native tool history before transport. Set `toolHistory: "text"` to convert historical calls and results into escaped `<tool_call>` and `<tool_result>` text blocks when no tools are enabled. The conversion preserves IDs, names, arguments, results, and failure status. It omits historical reasoning from the rewritten request and adds a system instruction treating the tagged history as data. Active-tool requests preserve native history and reasoning. The input Prompt remains unchanged, and the adapter option is not sent to AWS.
 
-`packages/ai/bedrock/test/BedrockLanguageModel.test.ts` covers enabled, removed, and disabled tools. The removed and disabled cases failed against the previous fallback before the fix.
+`packages/ai/bedrock/test/BedrockLanguageModel.test.ts` covers both policies with enabled, removed, and disabled tools, including failed results, delimiter escaping, and signed and redacted reasoning.
 
 ## Bedrock HTTP error evidence
 
