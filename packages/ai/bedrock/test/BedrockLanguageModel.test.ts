@@ -2,8 +2,9 @@ import type { ConverseStreamCommandInput, ConverseStreamOutput } from "@aws-sdk/
 import { ResponseFormat } from "@tardie/ai"
 import { BedrockLanguageModel } from "@tardie/ai-bedrock"
 import { Deferred, Effect, Fiber, Layer, Result, Schema, Stream } from "effect"
-import { LanguageModel, Prompt, Tool, Toolkit } from "effect/unstable/ai"
+import { AiError, LanguageModel, Prompt, Tool, Toolkit } from "effect/unstable/ai"
 import { FetchHttpClient } from "effect/unstable/http"
+import { Readable } from "node:stream"
 import { crc32 } from "node:zlib"
 import { expect, test } from "vitest"
 
@@ -515,4 +516,127 @@ test("Bedrock retains unknown calls beside valid siblings and usage", async () =
   expect(parts.find((part) => part.type === "finish")).toMatchObject({
     usage: { inputTokens: { total: 10 }, outputTokens: { total: 5 } }
   })
+})
+
+for (const bodyMode of ["bytes", "stream"] as const) {
+  test(`Bedrock preserves HTTP evidence when the AWS SDK cannot decode plaintext (${bodyMode})`, async () => {
+    const outcome = await Effect.runPromise(
+      LanguageModel.streamText({ prompt: "hello" }).pipe(
+        Stream.runCollect,
+        Effect.provide(BedrockLanguageModel.layer({
+          model: { model: "claude" },
+          client: {
+            region: "us-east-1",
+            credentials: { accessKeyId: "synthetic", secretAccessKey: "synthetic" },
+            requestHandler: {
+              handle: async () => ({
+                response: {
+                  statusCode: 503,
+                  headers: {
+                    "content-type": "text/plain",
+                    "cf-ray": "ray-SIN",
+                    "x-amzn-requestid": "request-1",
+                    "set-cookie": "secret-cookie"
+                  },
+                  body: bodyMode === "bytes"
+                    ? new TextEncoder().encode("error code: 1019\n")
+                    : Readable.from(["error code: 1019\n"])
+                }
+              })
+            }
+          }
+        })),
+        Effect.result
+      )
+    )
+    expect(outcome._tag).toBe("Failure")
+    if (outcome._tag !== "Failure") return
+    expect(outcome.failure.reason).toMatchObject({
+      _tag: "UnknownError",
+      description: "Bedrock HTTP 503: error code: 1019",
+      metadata: {
+        bedrock: {
+          response: { status: 503, headers: { "cf-ray": "ray-SIN", "x-amzn-requestid": "request-1" } },
+          upstreamCode: "1019"
+        }
+      }
+    })
+    const encoded = Schema.encodeSync(Schema.fromJsonString(AiError.AiError))(outcome.failure)
+    expect(encoded).not.toContain("secret-cookie")
+    expect(encoded).not.toContain("synthetic")
+  })
+}
+
+for (
+  const [name, tag] of [
+    ["ThrottlingException", "RateLimitError"],
+    ["ValidationException", "InvalidRequestError"],
+    ["ServiceUnavailableException", "InternalProviderError"],
+    ["Error", "UnknownError"]
+  ] as const
+) {
+  test(`Bedrock retains SDK metadata without changing ${name} classification`, async () => {
+    const cause = Object.assign(new Error("provider failure"), {
+      name,
+      $metadata: { httpStatusCode: 503, requestId: "sdk-request" }
+    })
+    const outcome = await Effect.runPromise(
+      LanguageModel.streamText({ prompt: "hello" }).pipe(
+        Stream.runCollect,
+        Effect.provide(BedrockLanguageModel.layer({
+          model: { model: "claude" },
+          client: {
+            send: async () => {
+              throw cause
+            }
+          }
+        })),
+        Effect.result
+      )
+    )
+    expect(outcome._tag).toBe("Failure")
+    if (outcome._tag !== "Failure") return
+    expect(outcome.failure.reason).toMatchObject({
+      _tag: tag,
+      metadata: { bedrock: { response: { status: 503, headers: {} }, requestId: "sdk-request" } }
+    })
+    const restored = Schema.decodeSync(Schema.fromJsonString(AiError.AiError))(
+      Schema.encodeSync(Schema.fromJsonString(AiError.AiError))(outcome.failure)
+    )
+    expect(restored.reason).toEqual(outcome.failure.reason)
+  })
+}
+
+test("Bedrock does not retain arbitrary plaintext response content", async () => {
+  const cause = new SyntaxError("Unexpected token: private-response")
+  Object.defineProperty(cause, "$response", {
+    value: {
+      statusCode: 502,
+      headers: { "Set-Cookie": "private-cookie", "X-Request-Id": "request-2" },
+      body: "private-response"
+    }
+  })
+  const outcome = await Effect.runPromise(
+    LanguageModel.streamText({ prompt: "hello" }).pipe(
+      Stream.runCollect,
+      Effect.provide(BedrockLanguageModel.layer({
+        model: { model: "claude" },
+        client: {
+          send: async () => {
+            throw cause
+          }
+        }
+      })),
+      Effect.result
+    )
+  )
+  expect(outcome._tag).toBe("Failure")
+  if (outcome._tag !== "Failure") return
+  expect(outcome.failure.reason).toMatchObject({
+    description: "Bedrock HTTP 502: response could not be decoded",
+    metadata: {
+      bedrock: { response: { status: 502, headers: { "x-request-id": "request-2" } }, decodingError: "SyntaxError" }
+    }
+  })
+  expect(Schema.encodeSync(Schema.fromJsonString(AiError.AiError))(outcome.failure)).not.toContain("private-")
 })

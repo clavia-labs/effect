@@ -129,16 +129,57 @@ const failure = (description: string) =>
     method: "streamText",
     reason: AiError.InvalidRequestError.make({ description })
   })
+const recordOf = (value: unknown): Record<string, unknown> | undefined =>
+  typeof value === "object" && value !== null ? value as Record<string, unknown> : undefined
+
+const errorEvidence = (cause: unknown) => {
+  const error = recordOf(cause)
+  const response = recordOf(error?.["$response"])
+  const sdkMetadata = recordOf(error?.["$metadata"])
+  const status = response?.["statusCode"] ?? sdkMetadata?.["httpStatusCode"]
+  const headers: Record<string, string> = {}
+  for (const [key, value] of Object.entries(recordOf(response?.["headers"]) ?? {})) {
+    const name = key.toLowerCase()
+    if (
+      ["content-type", "cf-ray", "x-request-id", "x-amzn-requestid", "x-amzn-request-id", "x-amz-request-id"].includes(
+        name
+      ) && typeof value === "string"
+    ) {
+      headers[name] = value
+    }
+  }
+  const body = response?.["body"]
+  const text = typeof body === "string" ? body : body instanceof Uint8Array ? new TextDecoder().decode(body) : undefined
+  const decoding = cause instanceof SyntaxError && typeof status === "number"
+  const upstreamCode = (text === undefined ? undefined : /^\s*error code:\s*(\d{4})\s*$/.exec(text)?.[1]) ??
+    (decoding ? /"error code:\s*(\d{4})\s*" is not valid JSON/.exec(cause.message)?.[1] : undefined)
+  const evidence: Schema.MutableJsonObject = {
+    ...(typeof status === "number" ? { response: { status, headers } } : {}),
+    ...(typeof sdkMetadata?.["requestId"] === "string" ? { requestId: sdkMetadata["requestId"] } : {}),
+    ...(upstreamCode === undefined ? {} : { upstreamCode }),
+    ...(decoding ? { decodingError: cause.name } : {})
+  }
+  return {
+    description: decoding
+      ? `Bedrock HTTP ${status}: ${
+        upstreamCode === undefined ? "response could not be decoded" : `error code: ${upstreamCode}`
+      }`
+      : String(cause),
+    metadata: Object.keys(evidence).length === 0 ? {} : { bedrock: evidence }
+  }
+}
+
 const providerError = (cause: unknown): AiError.AiError => {
   if (AiError.isAiError(cause)) return cause
   const name = cause instanceof Error ? cause.name : ""
+  const evidence = errorEvidence(cause)
   return AiError.make({
     module: "BedrockLanguageModel",
     method: "streamText",
     reason: name === "ThrottlingException"
-      ? AiError.RateLimitError.make({})
+      ? AiError.RateLimitError.make({ metadata: evidence.metadata })
       : name === "ValidationException"
-      ? AiError.InvalidRequestError.make({ description: String(cause) })
+      ? AiError.InvalidRequestError.make(evidence)
       : [
           "InternalServerException",
           "ServiceUnavailableException",
@@ -146,8 +187,8 @@ const providerError = (cause: unknown): AiError.AiError => {
           "ModelTimeoutException",
           "ModelNotReadyException"
         ].includes(name)
-      ? AiError.InternalProviderError.make({ description: String(cause) })
-      : AiError.UnknownError.make({ description: String(cause) })
+      ? AiError.InternalProviderError.make(evidence)
+      : AiError.UnknownError.make(evidence)
   })
 }
 

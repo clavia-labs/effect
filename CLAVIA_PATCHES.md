@@ -118,3 +118,11 @@ Each provider exports `ConfigSchema` and `ModelConfigSchema` from its language-m
 The provider rejects native tool history when the current request has no active tools, including `toolChoice: "none"`. It returns a typed `InvalidRequestError` before calling transport. Historical tool calls and results are not converted to text, and removed tools are not enabled to satisfy Converse validation. Requests with active tools preserve native history and reasoning; the input Prompt remains unchanged.
 
 `packages/ai/bedrock/test/BedrockLanguageModel.test.ts` covers enabled, removed, and disabled tools. The removed and disabled cases failed against the previous fallback before the fix.
+
+## Bedrock HTTP error evidence
+
+The Bedrock adapter retains available HTTP status and allowlisted diagnostic response headers in `reason.metadata.bedrock.response`, plus the SDK request ID when supplied. A non-JSON error response reports its HTTP status with the decoding failure as secondary metadata. Recognized plaintext `error code: NNNN` responses retain the upstream code without storing arbitrary response content. Existing error classification and retryability remain unchanged.
+
+The AWS SDK may leave buffered bytes readable after decoding fails, but a streamed body can already be consumed. The adapter reads retained bytes or strings, or recognizes the code in the SDK's JSON-error excerpt. It does not reread a consumed stream, invent request details, or retain cookies and authorization headers. An unavailable code stays absent.
+
+`packages/ai/bedrock/test/BedrockLanguageModel.test.ts` exercises the real SDK with synthetic HTTP 503 responses using buffered and streamed bodies. It also checks metadata retention across error classes, Effect schema serialization, and exclusion of arbitrary response content.
