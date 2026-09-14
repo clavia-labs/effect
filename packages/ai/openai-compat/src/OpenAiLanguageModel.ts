@@ -1242,30 +1242,15 @@ const makeStreamResponse = Effect.fnUntraced(
                   })
                 })
             })
-            const validated = yield* validateStreamTool(options.tools, toolCall.name, parsedParams)
-            const metadata = { openai: { ...makeItemIdMetadata(toolCall.id) } }
+            const params = yield* transformToolCallParams(options.tools, toolCall.name, parsedParams)
             parts.push({ type: "tool-params-end", id: toolCall.id })
-            if ("error" in validated) {
-              parts.push({
-                type: "error",
-                error: {
-                  _tag: "ToolCallValidationError",
-                  id: toolCall.id,
-                  name: toolCall.name,
-                  params: parsedParams,
-                  cause: validated.error,
-                  providerMetadata: metadata
-                }
-              })
-            } else {
-              parts.push({
-                type: "tool-call",
-                id: toolCall.id,
-                name: toolCall.name,
-                params: validated.params,
-                metadata
-              })
-            }
+            parts.push({
+              type: "tool-call",
+              id: toolCall.id,
+              name: toolCall.name,
+              params,
+              metadata: { openai: { ...makeItemIdMetadata(toolCall.id) } }
+            })
             hasToolCalls = true
           }
 
@@ -1526,21 +1511,6 @@ const transformToolCallParams = Effect.fnUntraced(function*<Tools extends Readon
     })
   }
 
-  if (Tool.isDynamic(tool) && tool.jsonSchema !== undefined) {
-    return yield* Schema.decodeUnknownEffect(Schema.toEncoded(tool.parametersSchema))(toolParams).pipe(
-      Effect.mapError((error) =>
-        AiError.make({
-          module: "OpenAiLanguageModel",
-          method: "makeResponse",
-          reason: new AiError.ToolParameterValidationError({
-            toolName,
-            toolParams,
-            description: formatIssue(error.issue)
-          })
-        })
-      )
-    )
-  }
   const { codec } = yield* tryCodecTransform(tool.parametersSchema, "makeResponse")
 
   // Normalize valid parameters; leave invalid ones for Toolkit.
@@ -2142,14 +2112,3 @@ const getUsageDetailNumber = (
   const value = (details as Record<string, unknown>)[field]
   return typeof value === "number" ? value : undefined
 }
-
-const validateStreamTool = (tools: ReadonlyArray<Tool.Any>, name: string, params: unknown) =>
-  transformToolCallParams(tools, name, params).pipe(
-    Effect.map((params) => ({ params })),
-    Effect.catch((error) =>
-      error.reason._tag === "ToolParameterValidationError" &&
-        tools.some((tool) => tool.name === name && tool.failureMode === "return")
-        ? Effect.succeed({ error: Schema.encodeSync(AiError.AiError)(error) })
-        : Effect.fail(error)
-    )
-  )

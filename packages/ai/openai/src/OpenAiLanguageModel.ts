@@ -3211,21 +3211,6 @@ const transformToolCallParams = Effect.fnUntraced(function*<Tools extends Readon
     })
   }
 
-  if (Tool.isDynamic(tool) && tool.jsonSchema !== undefined) {
-    return yield* Schema.decodeUnknownEffect(Schema.toEncoded(tool.parametersSchema))(toolParams).pipe(
-      Effect.mapError((error) =>
-        AiError.make({
-          module: "OpenAiLanguageModel",
-          method: "makeResponse",
-          reason: new AiError.ToolParameterValidationError({
-            toolName,
-            toolParams,
-            description: formatIssue(error.issue)
-          })
-        })
-      )
-    )
-  }
   const { codec } = yield* tryCodecTransform(tool.parametersSchema, "makeResponse")
 
   // Normalize valid parameters; leave invalid ones for Toolkit.

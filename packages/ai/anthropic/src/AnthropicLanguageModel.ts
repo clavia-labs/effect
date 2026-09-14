@@ -3136,21 +3136,6 @@ const transformToolCallParams = Effect.fnUntraced(function*<Tools extends Readon
     })
   }
 
-  if (Tool.isDynamic(tool) && tool.jsonSchema !== undefined) {
-    return yield* Schema.decodeUnknownEffect(Schema.toEncoded(tool.parametersSchema))(toolParams).pipe(
-      Effect.mapError((error) =>
-        AiError.make({
-          module: "AnthropicLanguageModel",
-          method: "makeResponse",
-          reason: new AiError.ToolParameterValidationError({
-            toolName,
-            toolParams,
-            description: formatIssue(error.issue)
-          })
-        })
-      )
-    )
-  }
   const { codec } = yield* tryCodecTransform(tool.parametersSchema, "makeResponse")
 
   // Normalize valid parameters; leave invalid ones for Toolkit.
@@ -3163,15 +3148,3 @@ const transformToolCallParams = Effect.fnUntraced(function*<Tools extends Readon
     Effect.orElseSucceed(() => toolParams)
   )
 })
-
-// validateStreamTool returns parameter failures only for tools that opt into return mode.
-const validateStreamTool = (tools: ReadonlyArray<Tool.Any>, name: string, params: unknown) =>
-  transformToolCallParams(tools, name, params).pipe(
-    Effect.map((params) => ({ params })),
-    Effect.catch((error) =>
-      error.reason._tag === "ToolParameterValidationError" &&
-        tools.some((tool) => tool.name === name && tool.failureMode === "return")
-        ? Effect.succeed({ error: Schema.encodeSync(AiError.AiError)(error) })
-        : Effect.fail(error)
-    )
-  )

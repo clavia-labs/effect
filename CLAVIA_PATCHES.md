@@ -1,6 +1,8 @@
 # Clavia provider patches
 
-Base: `effect@4.0.0-rc.113`. Publishing branch: `clavia/ai-providers`.
+Base: upstream `49e4b37b831a573567e0b67d3ec4593403dc2e72` (after `effect@4.0.0-rc.115`). Publishing branch: `clavia/ai-providers`.
+
+The base includes OpenAI hosted-search failure preservation (#8157) and OpenRouter disjoint token usage accounting (#8170). The declaration fix (#8162) is upstream and no longer needs a fork commit.
 
 This fork carries provider changes for Tardigrade. Consumers use upstream `effect@4.0.0-rc.115`, which includes declaration fix #8162. The provider packages use the `@tardie` scope. `@tardie/ai` supplies their shared factory wrapper.
 
