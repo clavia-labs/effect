@@ -32,6 +32,7 @@ const cases = [
     reasoning_effort: "high"
   }, { temperature: "hot" }],
   ["Bedrock", BedrockLanguageModel.ModelConfigSchema, {
+    toolHistory: "text",
     inferenceConfig: { temperature: 0.3, stopSequences: ["END"] },
     additionalModelRequestFields: { thinking: { type: "enabled", budget_tokens: 1024 } },
     performanceConfig: { latency: "optimized" },
@@ -46,6 +47,7 @@ describe("provider configuration schemas", () => {
       assert.deepStrictEqual(decode(JSON.parse(JSON.stringify(valid))), valid)
       assert.deepStrictEqual(decode({}), {})
       assert.throws(() => decode(invalid))
+      if (name === "Bedrock") assert.throws(() => decode({ toolHistory: "discard" }))
       if (name !== "compatible") {
         assert.throws(() => decode({ tools: [] }))
         assert.throws(() => decode({ model: "accidental-override" }))
