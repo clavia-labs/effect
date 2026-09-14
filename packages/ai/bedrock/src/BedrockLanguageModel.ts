@@ -128,12 +128,10 @@ declare module "effect/unstable/ai/Response" {
   }
 }
 
-const failure = (description: string) =>
-  AiError.make({
-    module: "BedrockLanguageModel",
-    method: "streamText",
-    reason: AiError.InvalidRequestError.make({ description })
-  })
+const bedrockError = (reason: AiError.AiErrorReason) =>
+  AiError.make({ module: "BedrockLanguageModel", method: "streamText", reason })
+const inputError = (description: string) => bedrockError(AiError.InvalidUserInputError.make({ description }))
+const outputError = (cause: unknown) => bedrockError(AiError.InvalidOutputError.make({ description: String(cause) }))
 const recordOf = (value: unknown): Record<string, unknown> | undefined =>
   typeof value === "object" && value !== null ? value as Record<string, unknown> : undefined
 
@@ -141,7 +139,8 @@ const errorEvidence = (cause: unknown) => {
   const error = recordOf(cause)
   const response = recordOf(error?.["$response"])
   const sdkMetadata = recordOf(error?.["$metadata"])
-  const status = response?.["statusCode"] ?? sdkMetadata?.["httpStatusCode"]
+  const rawStatus = response?.["statusCode"] ?? sdkMetadata?.["httpStatusCode"]
+  const status = typeof rawStatus === "number" ? rawStatus : undefined
   const headers: Record<string, string> = {}
   for (const [key, value] of Object.entries(recordOf(response?.["headers"]) ?? {})) {
     const name = key.toLowerCase()
@@ -159,12 +158,14 @@ const errorEvidence = (cause: unknown) => {
   const upstreamCode = (text === undefined ? undefined : /^\s*error code:\s*(\d{4})\s*$/.exec(text)?.[1]) ??
     (decoding ? /"error code:\s*(\d{4})\s*" is not valid JSON/.exec(cause.message)?.[1] : undefined)
   const evidence: Schema.MutableJsonObject = {
+    ...(typeof error?.["name"] === "string" ? { errorType: error["name"] } : {}),
     ...(typeof status === "number" ? { response: { status, headers } } : {}),
     ...(typeof sdkMetadata?.["requestId"] === "string" ? { requestId: sdkMetadata["requestId"] } : {}),
     ...(upstreamCode === undefined ? {} : { upstreamCode }),
     ...(decoding ? { decodingError: cause.name } : {})
   }
   return {
+    status,
     description: decoding
       ? `Bedrock HTTP ${status}: ${
         upstreamCode === undefined ? "response could not be decoded" : `error code: ${upstreamCode}`
@@ -177,24 +178,32 @@ const errorEvidence = (cause: unknown) => {
 const providerError = (cause: unknown): AiError.AiError => {
   if (AiError.isAiError(cause)) return cause
   const name = cause instanceof Error ? cause.name : ""
-  const evidence = errorEvidence(cause)
-  return AiError.make({
-    module: "BedrockLanguageModel",
-    method: "streamText",
-    reason: name === "ThrottlingException"
+  const { status, ...evidence } = errorEvidence(cause)
+  return bedrockError(
+    name === "ThrottlingException" || status === 429
       ? AiError.RateLimitError.make({ metadata: evidence.metadata })
       : name === "ValidationException"
       ? AiError.InvalidRequestError.make(evidence)
+      : name === "ServiceQuotaExceededException"
+      ? AiError.QuotaExhaustedError.make(evidence)
+      : name === "ExpiredTokenException"
+      ? AiError.AuthenticationError.make({ ...evidence, kind: "ExpiredKey" })
+      : ["UnrecognizedClientException", "InvalidSignatureException"].includes(name) || status === 401
+      ? AiError.AuthenticationError.make({ ...evidence, kind: "InvalidKey" })
+      : name === "AccessDeniedException" || status === 403
+      ? AiError.AuthenticationError.make({ ...evidence, kind: "InsufficientPermissions" })
       : [
           "InternalServerException",
           "ServiceUnavailableException",
           "ModelStreamErrorException",
           "ModelTimeoutException",
           "ModelNotReadyException"
-        ].includes(name)
+        ].includes(name) || (status !== undefined && status >= 500)
       ? AiError.InternalProviderError.make(evidence)
+      : status === 400 || status === 404 || status === 422
+      ? AiError.InvalidRequestError.make(evidence)
       : AiError.UnknownError.make(evidence)
-  })
+  )
 }
 
 /**
@@ -229,7 +238,7 @@ export const layer = (
           }
           const input = yield* Effect.try({
             try: () => bedrockRequest(request, options.model.model, config),
-            catch: providerError
+            catch: (cause) => AiError.isAiError(cause) ? cause : inputError(String(cause))
           })
           const controller = yield* Effect.acquireRelease(
             Effect.sync(() => new AbortController()),
@@ -239,7 +248,7 @@ export const layer = (
             try: () => send(input, controller.signal),
             catch: providerError
           })
-          if (response.stream === undefined) return yield* failure("Bedrock returned no stream")
+          if (response.stream === undefined) return yield* outputError("Bedrock returned no stream")
           const state = new BedrockResponse()
           return Stream.fromAsyncIterable(abortable(response.stream, controller), providerError).pipe(
             Stream.mapEffect((event) => state.accept(event)),
@@ -248,7 +257,7 @@ export const layer = (
         }))
       return yield* ProviderLanguageModel.make({
         streamText,
-        generateText: () => Effect.fail(failure("The Bedrock bridge supports streamText only"))
+        generateText: () => Effect.fail(inputError("The Bedrock bridge supports streamText only"))
       })
     })
   )
@@ -266,7 +275,7 @@ const bedrockRequest = (
   const tools = request.tools.filter((tool) =>
     choice !== "none" && !(typeof choice === "object" && "oneOf" in choice && !choice.oneOf.includes(tool.name))
   )
-  if (tools.some(Tool.isProviderDefined)) throw failure("Bedrock provider-defined tools are unsupported")
+  if (tools.some(Tool.isProviderDefined)) throw inputError("Bedrock provider-defined tools are unsupported")
   const textHistory = toolHistory === "text" && tools.length === 0 &&
     request.prompt.content.some((message) =>
       message.role !== "system" &&
@@ -300,7 +309,7 @@ const bedrockRequest = (
       }
       const native = toBedrockPart(part)
       if (tools.length === 0 && (native.toolUse !== undefined || native.toolResult !== undefined)) {
-        throw failure(
+        throw inputError(
           "Bedrock Converse cannot replay tool history without active tools; native tool blocks require toolConfig"
         )
       }
@@ -394,7 +403,7 @@ const toBedrockPart = (
         }
       }
     default:
-      throw failure(`Unsupported Bedrock prompt part: ${part.type}`)
+      throw inputError(`Unsupported Bedrock prompt part: ${part.type}`)
   }
 }
 
@@ -423,7 +432,7 @@ class BedrockResponse {
         ] as const
       ) {
         if (event[key] !== undefined) {
-          const error = new Error(event[key].message)
+          const error: Error = Object.assign(new Error(event[key].message), event[key])
           error.name = key[0]!.toUpperCase() + key.slice(1)
           return yield* providerError(error)
         }
@@ -432,7 +441,7 @@ class BedrockResponse {
         const { contentBlockIndex: index, start } = event.contentBlockStart
         const call = start?.toolUse
         if (index === undefined || call?.toolUseId === undefined || call.name === undefined || this.blocks.has(index)) {
-          return yield* failure("Invalid Bedrock tool block start")
+          return yield* outputError("Invalid Bedrock tool block start")
         }
         this.blocks.set(index, {
           type: "tool",
@@ -446,7 +455,7 @@ class BedrockResponse {
       }
       if (event.contentBlockDelta !== undefined) {
         const { contentBlockIndex: index, delta } = event.contentBlockDelta
-        if (index === undefined || delta === undefined) return yield* failure("Invalid Bedrock content delta")
+        if (index === undefined || delta === undefined) return yield* outputError("Invalid Bedrock content delta")
         let block = this.blocks.get(index)
         const type = delta.toolUse !== undefined
           ? "tool"
@@ -455,14 +464,14 @@ class BedrockResponse {
           : delta.text !== undefined
           ? "text"
           : undefined
-        if (type === undefined) return yield* failure("Unsupported Bedrock content delta")
+        if (type === undefined) return yield* outputError("Unsupported Bedrock content delta")
         if (block === undefined) {
-          if (type === "tool") return yield* failure("Bedrock tool delta has no block start")
+          if (type === "tool") return yield* outputError("Bedrock tool delta has no block start")
           block = { type, id: String(index), text: "", signature: "", redacted: [] }
           this.blocks.set(index, block)
           parts.push({ type: type === "text" ? "text-start" : "reasoning-start", id: block.id })
         }
-        if (block.type !== type) return yield* failure("Bedrock content block changed type")
+        if (block.type !== type) return yield* outputError("Bedrock content block changed type")
         const text = delta.text ?? delta.toolUse?.input ?? delta.reasoningContent?.text ?? ""
         block.text += text
         block.signature += delta.reasoningContent?.signature ?? ""
@@ -482,7 +491,7 @@ class BedrockResponse {
       if (event.contentBlockStop !== undefined) {
         const index = event.contentBlockStop.contentBlockIndex
         const block = index === undefined ? undefined : this.blocks.get(index)
-        if (block === undefined) return yield* failure("Bedrock stopped an unknown block")
+        if (block === undefined) return yield* outputError("Bedrock stopped an unknown block")
         this.blocks.delete(index!)
         if (block.type === "tool") {
           this.calls.set(index!, block)
@@ -502,17 +511,17 @@ class BedrockResponse {
           })}
       }
       if (event.messageStop !== undefined) {
-        if (this.blocks.size !== 0) return yield* failure("Bedrock stopped with unfinished blocks")
+        if (this.blocks.size !== 0) return yield* outputError("Bedrock stopped with unfinished blocks")
         this.stop = event.messageStop.stopReason
       }
       if (event.metadata !== undefined) {
-        if (this.stop === undefined) return yield* failure("Bedrock usage arrived before message completion")
+        if (this.stop === undefined) return yield* outputError("Bedrock usage arrived before message completion")
         const reason = stopReason(this.stop)
         if (reason === "stop" || reason === "tool-calls") {
           for (const [, call] of [...this.calls].sort(([a], [b]) => a - b)) {
             const params = yield* Effect.try({
               try: () => Tool.unsafeSecureJsonParse(call.text === "" ? "{}" : call.text),
-              catch: providerError
+              catch: outputError
             })
             parts.push({ type: "tool-call", id: call.id, name: call.name!, params })
           }
@@ -523,7 +532,7 @@ class BedrockResponse {
           : {
             usage: yield* Schema.decodeUnknownEffect(Schema.Record(Schema.String, Schema.Json))(
               JSON.parse(JSON.stringify(usage))
-            ).pipe(Effect.mapError(providerError))
+            ).pipe(Effect.mapError(outputError))
           }
         parts.push({
           type: "finish",

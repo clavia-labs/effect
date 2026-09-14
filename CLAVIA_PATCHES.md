@@ -123,8 +123,14 @@ Native history is the default. Requests with no active tools, including `toolCho
 
 ## Bedrock HTTP error evidence
 
-The Bedrock adapter retains available HTTP status and allowlisted diagnostic response headers in `reason.metadata.bedrock.response`, plus the SDK request ID when supplied. A non-JSON error response reports its HTTP status with the decoding failure as secondary metadata. Recognized plaintext `error code: NNNN` responses retain the upstream code without storing arbitrary response content. Existing error classification and retryability remain unchanged.
+The Bedrock adapter retains available HTTP status and allowlisted diagnostic response headers in `reason.metadata.bedrock.response`, plus the SDK request ID when supplied. A non-JSON error response reports its HTTP status with the decoding failure as secondary metadata. Recognized plaintext `error code: NNNN` responses retain the upstream code without storing arbitrary response content. Error classification uses AWS exception names and available HTTP status.
 
 The AWS SDK may leave buffered bytes readable after decoding fails, but a streamed body can already be consumed. The adapter reads retained bytes or strings, or recognizes the code in the SDK's JSON-error excerpt. It does not reread a consumed stream, invent request details, or retain cookies and authorization headers. An unavailable code stays absent.
 
 `packages/ai/bedrock/test/BedrockLanguageModel.test.ts` exercises the real SDK with synthetic HTTP 503 responses using buffered and streamed bodies. It also checks metadata retention across error classes, Effect schema serialization, and exclusion of arbitrary response content.
+
+## Bedrock error classification
+
+Local request validation emits `InvalidUserInputError`. Missing or malformed provider responses emit `InvalidOutputError`. AWS request rejections retain `InvalidRequestError`, while authentication, quota, throttling, and service failures use their Effect error reasons. The original exception name is retained as `reason.metadata.bedrock.errorType`, following the provider error metadata convention. HTTP status remains usable when SDK error-body decoding fails. Consumers can use native `isRetryable` after separating local input failures from provider failures.
+
+`packages/ai/bedrock/test/BedrockLanguageModel.test.ts` checks local rejection before dispatch, malformed response classification, SDK and stream exception evidence, HTTP 503 retryability, and serialized error round trips.

@@ -117,7 +117,7 @@ for (
     if (mode !== "enabled" && history === "native") {
       expect(Result.isFailure(result)).toBe(true)
       if (Result.isFailure(result)) {
-        expect(result.failure.reason._tag).toBe("InvalidRequestError")
+        expect(result.failure.reason._tag).toBe("InvalidUserInputError")
         expect(result.failure.message).toContain("tool history")
       }
       expect(sent).toBeUndefined()
@@ -439,7 +439,7 @@ for (const mode of ["default-validation", "provider-validation", "throttle"] as 
               validationException: {
                 name: "ValidationException",
                 $fault: "client",
-                $metadata: {},
+                $metadata: { requestId: "stream-request" },
                 message: "invalid request"
               }
             }
@@ -474,6 +474,11 @@ for (const mode of ["default-validation", "provider-validation", "throttle"] as 
     expect(requests).toBe(1)
     expect(outcome._tag).toBe("Failure")
     if (outcome._tag === "Failure") {
+      if (mode === "provider-validation") {
+        expect(outcome.failure).toMatchObject({
+          reason: { metadata: { bedrock: { errorType: "ValidationException", requestId: "stream-request" } } }
+        })
+      }
       expect(outcome.failure).toMatchObject({
         reason: {
           _tag: mode === "throttle"
@@ -500,7 +505,9 @@ test("Bedrock exposes the stream-only contract", async () => {
     LanguageModel.generateText({ prompt: "Hello" }).pipe(Effect.provide(layer), Effect.result)
   )
   expect(result._tag).toBe("Failure")
-  if (result._tag === "Failure") expect(result.failure).toMatchObject({ reason: { _tag: "InvalidRequestError" } })
+  if (result._tag === "Failure") {
+    expect(result.failure).toMatchObject({ reason: { _tag: "InvalidUserInputError" }, isRetryable: false })
+  }
 })
 
 test("Bedrock preserves reported cache buckets and raw usage", async () => {
@@ -592,7 +599,7 @@ for (const bodyMode of ["bytes", "stream"] as const) {
     expect(outcome._tag).toBe("Failure")
     if (outcome._tag !== "Failure") return
     expect(outcome.failure.reason).toMatchObject({
-      _tag: "UnknownError",
+      _tag: "InternalProviderError",
       description: "Bedrock HTTP 503: error code: 1019",
       metadata: {
         bedrock: {
@@ -608,17 +615,23 @@ for (const bodyMode of ["bytes", "stream"] as const) {
 }
 
 for (
-  const [name, tag] of [
-    ["ThrottlingException", "RateLimitError"],
-    ["ValidationException", "InvalidRequestError"],
-    ["ServiceUnavailableException", "InternalProviderError"],
-    ["Error", "UnknownError"]
+  const [name, status, tag, retryable] of [
+    ["ThrottlingException", 429, "RateLimitError", true],
+    ["ValidationException", 400, "InvalidRequestError", false],
+    ["AccessDeniedException", 403, "AuthenticationError", false],
+    ["UnrecognizedClientException", 403, "AuthenticationError", false],
+    ["ExpiredTokenException", 403, "AuthenticationError", false],
+    ["ServiceQuotaExceededException", 400, "QuotaExhaustedError", false],
+    ["ServiceUnavailableException", 503, "InternalProviderError", true],
+    ["Error", 503, "InternalProviderError", true],
+    ["Error", 400, "InvalidRequestError", false],
+    ["Error", 418, "UnknownError", false]
   ] as const
 ) {
-  test(`Bedrock retains SDK metadata without changing ${name} classification`, async () => {
+  test(`Bedrock classifies ${name} with HTTP ${status} and retains SDK metadata`, async () => {
     const cause = Object.assign(new Error("provider failure"), {
       name,
-      $metadata: { httpStatusCode: 503, requestId: "sdk-request" }
+      $metadata: { httpStatusCode: status, requestId: "sdk-request" }
     })
     const outcome = await Effect.runPromise(
       LanguageModel.streamText({ prompt: "hello" }).pipe(
@@ -638,12 +651,13 @@ for (
     if (outcome._tag !== "Failure") return
     expect(outcome.failure.reason).toMatchObject({
       _tag: tag,
-      metadata: { bedrock: { response: { status: 503, headers: {} }, requestId: "sdk-request" } }
+      metadata: { bedrock: { errorType: name, response: { status, headers: {} }, requestId: "sdk-request" } }
     })
     const restored = Schema.decodeSync(Schema.fromJsonString(AiError.AiError))(
       Schema.encodeSync(Schema.fromJsonString(AiError.AiError))(outcome.failure)
     )
     expect(restored.reason).toEqual(outcome.failure.reason)
+    expect(restored.isRetryable).toBe(retryable)
   })
 }
 
@@ -680,3 +694,34 @@ test("Bedrock does not retain arbitrary plaintext response content", async () =>
   })
   expect(Schema.encodeSync(Schema.fromJsonString(AiError.AiError))(outcome.failure)).not.toContain("private-")
 })
+
+for (const mode of ["missing-stream", "malformed-stream"] as const) {
+  test(`Bedrock classifies ${mode} as invalid provider output`, async () => {
+    let requests = 0
+    const outcome = await Effect.runPromise(
+      LanguageModel.streamText({ prompt: "hello" }).pipe(
+        Stream.runCollect,
+        Effect.provide(BedrockLanguageModel.layer({
+          model: { model: "claude" },
+          client: {
+            send: async () => {
+              requests++
+              return mode === "missing-stream" ? { $metadata: {} } : {
+                $metadata: {},
+                stream: (async function*() {
+                  yield { contentBlockStop: { contentBlockIndex: 0 } }
+                })()
+              }
+            }
+          }
+        })),
+        Effect.result
+      )
+    )
+    expect(requests).toBe(1)
+    expect(outcome._tag).toBe("Failure")
+    if (outcome._tag === "Failure") {
+      expect(outcome.failure).toMatchObject({ reason: { _tag: "InvalidOutputError" }, isRetryable: true })
+    }
+  })
+}
