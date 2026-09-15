@@ -1565,6 +1565,77 @@ describe("OpenAiLanguageModel", () => {
         assert.deepStrictEqual(toolCall.params, { input: "hello" })
       }))
 
+    it.effect("preserves Kimi tool calls with null role and continuation id", () =>
+      Effect.gen(function*() {
+        const chunk = (fnDelta: Record<string, unknown>) => ({
+          id: "chatcmpl_null_name_1",
+          object: "chat.completion.chunk",
+          model: "gpt-4o-mini",
+          created: 1,
+          choices: [{
+            index: 0,
+            delta: {
+              role: null,
+              content: null,
+              reasoning_content: null,
+              tool_calls: [{
+                index: 0,
+                id: fnDelta.name === null ? null : "call_1",
+                type: "function",
+                function: fnDelta
+              }]
+            }
+          }]
+        })
+
+        const layer = OpenAiClient.layer({ apiKey: Redacted.make("sk-test-key") }).pipe(
+          Layer.provide(Layer.succeed(
+            HttpClient.HttpClient,
+            makeHttpClient((request) =>
+              Effect.succeed(sseResponse(request, [
+                chunk({ name: "TestTool", arguments: "" }),
+                chunk({ name: null, arguments: "{\"in" }),
+                chunk({ name: null, arguments: "put\":\"hel" }),
+                chunk({ name: null, arguments: "lo\"}" }),
+                {
+                  id: "chatcmpl_null_name_1",
+                  object: "chat.completion.chunk",
+                  model: "gpt-4o-mini",
+                  created: 1,
+                  choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }]
+                },
+                "[DONE]"
+              ]))
+            )
+          ))
+        )
+
+        const partsChunk = yield* LanguageModel.streamText({
+          prompt: "use the tool",
+          toolkit: TestToolkit,
+          disableToolCallResolution: true
+        }).pipe(
+          Stream.runCollect,
+          Effect.provide(OpenAiLanguageModel.model("gpt-4o-mini")),
+          Effect.provide(TestToolkitLayer),
+          Effect.provide(layer)
+        )
+
+        const parts = globalThis.Array.from(partsChunk)
+        const paramsDeltas = parts.filter((part) => part.type === "tool-params-delta")
+        assert.isAbove(paramsDeltas.length, 0)
+
+        const toolCall = parts.find((part) => part.type === "tool-call")
+        assert.isDefined(toolCall)
+        if (toolCall?.type !== "tool-call") {
+          return
+        }
+        assert.strictEqual(parts.filter((part) => part.type === "tool-call").length, 1)
+        assert.strictEqual(toolCall.id, "call_1")
+        assert.strictEqual(toolCall.name, "TestTool")
+        assert.deepStrictEqual(toolCall.params, { input: "hello" })
+      }))
+
     it.effect("emits reasoning lifecycle parts for delta.reasoning", () =>
       Effect.gen(function*() {
         const chunk = (delta: Record<string, unknown>, finishReason: string | null = null) => ({

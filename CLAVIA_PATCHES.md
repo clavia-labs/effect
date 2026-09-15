@@ -23,6 +23,8 @@ This fork carries provider changes for Tardigrade. Consumers use upstream `effec
 
 All three provider factories use this wrapper. Effect service identity, prompt handling, and validation remain upstream. The wrapper does not replace or patch the Effect module. Its streamed deferred-call path checks encoded schemas before native response decoding. An internal context reference keeps that path separate from managed execution.
 
+Streaming tool-call deltas accept null roles and null continuation IDs. The parser retains the first call ID and assembles argument fragments by tool index. The compatible-provider suite covers the Kimi stream shape.
+
 ## Validation
 
 Run `pnpm test --run packages/ai/clavia/test/LanguageModel.test.ts packages/ai/clavia/test/ProviderStreams.test.ts packages/ai/openai/test/OpenAiLanguageModel.test.ts packages/ai/anthropic/test/AnthropicLanguageModel.test.ts packages/ai/openai-compat/test/OpenAiLanguageModel.test.ts`.
