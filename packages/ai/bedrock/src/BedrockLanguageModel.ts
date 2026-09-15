@@ -236,8 +236,9 @@ export const layer = (
             ...override,
             inferenceConfig: { ...options.model.config?.inferenceConfig, ...override.inferenceConfig }
           }
+          const names = bedrockToolNames(request)
           const input = yield* Effect.try({
-            try: () => bedrockRequest(request, options.model.model, config),
+            try: () => bedrockRequest(request, options.model.model, config, names),
             catch: (cause) => AiError.isAiError(cause) ? cause : inputError(String(cause))
           })
           const controller = yield* Effect.acquireRelease(
@@ -249,7 +250,7 @@ export const layer = (
             catch: providerError
           })
           if (response.stream === undefined) return yield* outputError("Bedrock returned no stream")
-          const state = new BedrockResponse()
+          const state = new BedrockResponse(names.fromWire)
           return Stream.fromAsyncIterable(abortable(response.stream, controller), providerError).pipe(
             Stream.mapEffect((event) => state.accept(event)),
             Stream.flatMap(Stream.fromIterable)
@@ -262,13 +263,54 @@ export const layer = (
     })
   )
 
+// bedrockToolNames preserves valid names and maps native history and replies (ToolNames.test.ts).
+// Reserve valid names first so sanitizing one name never shadows another tool.
+// Include inactive history because native replay uses the same provider namespace.
+// Names have at most 64 characters: https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_ToolSpecification.html
+const bedrockToolNames = (request: LanguageModel.ProviderOptions) => {
+  const originals = new Set(request.tools.map((tool) => tool.name))
+  for (const message of request.prompt.content) {
+    if (message.role === "system") continue
+    for (const part of message.content) {
+      if (part.type === "tool-call") originals.add(part.name)
+    }
+  }
+  const choice = request.toolChoice
+  if (typeof choice === "object" && "tool" in choice) originals.add(choice.tool)
+  const encoded = new Map<string, string>()
+  const decoded = new Map<string, string>()
+  for (const name of originals) {
+    if (/^[a-zA-Z0-9_-]{1,64}$/.test(name)) {
+      encoded.set(name, name)
+      decoded.set(name, name)
+    }
+  }
+  for (const name of [...originals].sort()) {
+    if (encoded.has(name)) continue
+    const base = name.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 64) || "tool"
+    let wire = base
+    let suffix = 0
+    while (decoded.has(wire)) {
+      const ending = `_${++suffix}`
+      wire = base.slice(0, 64 - ending.length) + ending
+    }
+    encoded.set(name, wire)
+    decoded.set(wire, name)
+  }
+  return {
+    toWire: (name: string): string => encoded.get(name) ?? name,
+    fromWire: (name: string): string => decoded.get(name) ?? name
+  }
+}
+
 /*
  * bedrockRequest applies the configured tool-history policy (test/BedrockLanguageModel.test.ts).
  */
 const bedrockRequest = (
   request: LanguageModel.ProviderOptions,
   modelId: string,
-  config: ModelConfig
+  config: ModelConfig,
+  names: ReturnType<typeof bedrockToolNames>
 ): ConverseStreamCommandInput => {
   const { toolHistory, ...nativeConfig } = config
   const choice = request.toolChoice
@@ -307,7 +349,7 @@ const bedrockRequest = (
           }]
         }
       }
-      const native = toBedrockPart(part)
+      const native = toBedrockPart(part, names.toWire)
       if (tools.length === 0 && (native.toolUse !== undefined || native.toolResult !== undefined)) {
         throw inputError(
           "Bedrock Converse cannot replay tool history without active tools; native tool blocks require toolConfig"
@@ -330,13 +372,13 @@ const bedrockRequest = (
       toolConfig: {
         tools: tools.map((tool) => ({
           toolSpec: {
-            name: tool.name,
+            name: names.toWire(tool.name),
             description: Tool.getDescription(tool) ?? tool.name,
             inputSchema: { json: nativeJson(Tool.getJsonSchema(tool)) }
           }
         })),
         toolChoice: typeof choice === "object" && "tool" in choice
-          ? { tool: { name: choice.tool } }
+          ? { tool: { name: names.toWire(choice.tool) } }
           : choice === "required" || typeof choice === "object" && "oneOf" in choice && choice.mode === "required"
           ? { any: {} }
           : { auto: {} }
@@ -369,7 +411,8 @@ const toBedrockPart = (
   part:
     | Prompt.UserMessage["content"][number]
     | Prompt.AssistantMessage["content"][number]
-    | Prompt.ToolMessage["content"][number]
+    | Prompt.ToolMessage["content"][number],
+  toolName: (name: string) => string
 ): ContentBlock => {
   switch (part.type) {
     case "text":
@@ -393,7 +436,7 @@ const toBedrockPart = (
       }
     }
     case "tool-call":
-      return { toolUse: { toolUseId: part.id, name: part.name, input: nativeJson(part.params) } }
+      return { toolUse: { toolUseId: part.id, name: toolName(part.name), input: nativeJson(part.params) } }
     case "tool-result":
       return {
         toolResult: {
@@ -419,6 +462,10 @@ class BedrockResponse {
   private readonly blocks = new Map<number, Block>()
   private readonly calls = new Map<number, Block>()
   private stop: string | undefined
+  private readonly toolName: (name: string) => string
+  constructor(toolName: (name: string) => string) {
+    this.toolName = toolName
+  }
   accept(event: ConverseStreamOutput): Effect.Effect<Array<Response.StreamPartEncoded>, AiError.AiError> {
     return Effect.gen({ self: this }, function*() {
       const parts: Array<Response.StreamPartEncoded> = []
@@ -446,12 +493,12 @@ class BedrockResponse {
         this.blocks.set(index, {
           type: "tool",
           id: call.toolUseId,
-          name: call.name,
+          name: this.toolName(call.name),
           text: "",
           signature: "",
           redacted: []
         })
-        parts.push({ type: "tool-params-start", id: call.toolUseId, name: call.name })
+        parts.push({ type: "tool-params-start", id: call.toolUseId, name: this.toolName(call.name) })
       }
       if (event.contentBlockDelta !== undefined) {
         const { contentBlockIndex: index, delta } = event.contentBlockDelta

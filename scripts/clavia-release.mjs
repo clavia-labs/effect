@@ -61,7 +61,7 @@ if (action === "check") {
   writeFileSync(join(consumer, "test/runtime.ts"), entrypoints.map((name, index) => `export * as runtime${index} from "${name}"`).join("\n"))
   writeFileSync(join(consumer, "tsconfig.json"), JSON.stringify({ compilerOptions: { target: "ESNext", module: "NodeNext", moduleResolution: "NodeNext", strict: true, exactOptionalPropertyTypes: true, skipLibCheck: false, allowImportingTsExtensions: true, noEmit: true, types: ["node"] }, include: ["test/**/*.ts"] }))
   run("npm", ["exec", "--no", "--", "tsc", "-p", "tsconfig.json"], consumer)
-  run("npm", ["exec", "--no", "--", "vitest", "run", "test/LanguageModel.test.ts", "test/ProviderStreams.test.ts", "test/ConfigSchema.test.ts", "test/bedrock/BedrockLanguageModel.test.ts"], consumer)
+  run("npm", ["exec", "--no", "--", "vitest", "run", "test/LanguageModel.test.ts", "test/ProviderStreams.test.ts", "test/ConfigSchema.test.ts", "test/bedrock/BedrockLanguageModel.test.ts", "test/bedrock/ToolNames.test.ts"], consumer)
   run("npm", ["ls", "effect"], consumer)
   console.log(`Packed consumer checked at ${consumer}`)
 }
