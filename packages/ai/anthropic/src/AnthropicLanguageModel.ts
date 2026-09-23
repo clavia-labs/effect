@@ -8,6 +8,7 @@
  * @since 4.0.0
  */
 /** @effect-diagnostics preferSchemaOverJson:skip-file */
+import * as ProviderLanguageModel from "@tardie/ai/LanguageModel"
 import * as Arr from "effect/Array"
 import * as Context from "effect/Context"
 import * as DateTime from "effect/DateTime"
@@ -21,8 +22,9 @@ import * as Redactable from "effect/Redactable"
 import * as Schema from "effect/Schema"
 import * as SchemaAST from "effect/SchemaAST"
 import * as Stream from "effect/Stream"
+import * as Struct from "effect/Struct"
 import type { Span } from "effect/Tracer"
-import type { Mutable, Simplify } from "effect/Types"
+import type { Mutable } from "effect/Types"
 import * as AiError from "effect/unstable/ai/AiError"
 import { toCodecAnthropic } from "effect/unstable/ai/AnthropicStructuredOutput"
 import * as IdGenerator from "effect/unstable/ai/IdGenerator"
@@ -36,7 +38,7 @@ import type * as HttpClientResponse from "effect/unstable/http/HttpClientRespons
 import { AnthropicClient, type MessageStreamEvent } from "./AnthropicClient.ts"
 import { addGenAIAnnotations } from "./AnthropicTelemetry.ts"
 import type { AnthropicTool } from "./AnthropicTool.ts"
-import type * as Generated from "./Generated.ts"
+import * as Generated from "./Generated.ts"
 import * as InternalUtilities from "./internal/utilities.ts"
 
 /**
@@ -68,41 +70,42 @@ export type Model = (typeof Generated.Model)["members"][1]["Encoded"]
  * @category services
  * @since 4.0.0
  */
-export class Config extends Context.Service<
-  Config,
-  Simplify<
-    & Partial<
-      Omit<
-        typeof Generated.BetaCreateMessageParams.Encoded,
-        "messages" | "output_config" | "tools" | "tool_choice" | "stream"
-      >
-    >
-    & {
-      readonly output_config?: {
-        readonly effort?: "low" | "medium" | "high" | null
-      }
-      /**
-       * Disables Claude's ability to use multiple tools to respond to a query.
-       */
-      readonly disableParallelToolCalls?: boolean | undefined
-      /**
-       * Whether the model supports native structured outputs.
-       *
-       * Overrides automatic capability detection based on the model identifier.
-       */
-      readonly structuredOutputs?: boolean | undefined
-      /**
-       * Whether to use strict JSON schema validation for tool calls.
-       *
-       * **Details**
-       *
-       * Only applies to models that support structured outputs. Defaults to
-       * `true` when structured outputs are supported.
-       */
-      readonly strictJsonSchema?: boolean | undefined
-    }
-  >
->()("@effect/ai-anthropic/AnthropicLanguageModel/Config") {}
+export class Config
+  extends Context.Service<Config, typeof ConfigSchema.Encoded>()("@effect/ai-anthropic/AnthropicLanguageModel/Config")
+{}
+
+/**
+ * ConfigSchema validates provider configuration (../../clavia/test/ConfigSchema.test.ts).
+ *
+ * @category schemas
+ * @since 4.0.0
+ */
+export const ConfigSchema = Schema.Struct({
+  ...Struct.map(
+    Struct.omit(Generated.BetaCreateMessageParams.fields, [
+      "messages",
+      "output_config",
+      "tools",
+      "tool_choice",
+      "stream"
+    ]),
+    Schema.optionalKey
+  ),
+  output_config: Schema.optionalKey(
+    Schema.Struct({ effort: Schema.optionalKey(Schema.NullOr(Generated.BetaEffortLevel)) })
+  ),
+  disableParallelToolCalls: Schema.optional(Schema.Boolean),
+  structuredOutputs: Schema.optional(Schema.Boolean),
+  strictJsonSchema: Schema.optional(Schema.Boolean)
+})
+
+/**
+ * ModelConfigSchema validates configuration supplied alongside a model identifier.
+ *
+ * @category schemas
+ * @since 4.0.0
+ */
+export const ModelConfigSchema = ConfigSchema.mapFields(Struct.omit(["model"]))
 
 // =============================================================================
 // Provider Options / Metadata
@@ -739,7 +742,7 @@ export const make = Effect.fnUntraced(function*({ model, config: providerConfig 
     }
   )
 
-  return yield* LanguageModel.make({
+  return yield* ProviderLanguageModel.make({
     codecTransformer: toCodecAnthropic,
     generateText: Effect.fnUntraced(function*(options) {
       const config = yield* makeConfig
@@ -1943,6 +1946,7 @@ const makeResponse = Effect.fnUntraced(
 
     const inputTokens = rawResponse.usage.input_tokens
     const outputTokens = rawResponse.usage.output_tokens
+    const reasoningTokens = rawResponse.usage.output_tokens_details?.thinking_tokens
     const cacheWriteTokens = rawResponse.usage.cache_creation_input_tokens ?? 0
     const cacheReadTokens = rawResponse.usage.cache_read_input_tokens ?? 0
 
@@ -1959,7 +1963,7 @@ const makeResponse = Effect.fnUntraced(
         outputTokens: {
           total: outputTokens,
           text: undefined,
-          reasoning: undefined
+          reasoning: reasoningTokens
         }
       },
       response: buildHttpResponseDetails(response),
@@ -2025,15 +2029,18 @@ const makeStreamResponse = Effect.fnUntraced(
       outputTokens: number
       cacheReadInputTokens: number
       cacheWriteInputTokens: number
+      reasoningTokens: number | undefined
     }> = {
       inputTokens: 0,
       outputTokens: 0,
       cacheReadInputTokens: 0,
-      cacheWriteInputTokens: 0
+      cacheWriteInputTokens: 0,
+      reasoningTokens: undefined
     }
 
     let blockType: typeof Generated.BetaContentBlockStartEvent.Encoded["content_block"]["type"] | undefined = undefined
 
+    let toolParseError: AiError.AiError | undefined
     return stream.pipe(
       Stream.mapEffect(Effect.fnUntraced(function*(event) {
         const parts: Array<Response.StreamPartEncoded> = []
@@ -2122,21 +2129,24 @@ const makeStreamResponse = Effect.fnUntraced(
             rawUsage = { ...rawUsage, ...event.usage } as any
 
             if (
-              Predicate.isNotNull(event.usage.input_tokens) &&
+              Predicate.isNotNullish(event.usage.input_tokens) &&
               usage.inputTokens !== event.usage.input_tokens
             ) {
               usage.inputTokens = event.usage.input_tokens
             }
             usage.outputTokens = event.usage.output_tokens
+            if (Predicate.isNotNullish(event.usage.output_tokens_details?.thinking_tokens)) {
+              usage.reasoningTokens = event.usage.output_tokens_details.thinking_tokens
+            }
 
             if (
-              Predicate.isNotNull(event.usage.cache_read_input_tokens) &&
+              Predicate.isNotNullish(event.usage.cache_read_input_tokens) &&
               usage.cacheReadInputTokens !== event.usage.cache_read_input_tokens
             ) {
               usage.cacheReadInputTokens = event.usage.cache_read_input_tokens
             }
             if (
-              Predicate.isNotNull(event.usage.cache_creation_input_tokens) &&
+              Predicate.isNotNullish(event.usage.cache_creation_input_tokens) &&
               usage.cacheWriteInputTokens !== event.usage.cache_creation_input_tokens
             ) {
               usage.cacheWriteInputTokens = event.usage.cache_creation_input_tokens
@@ -2184,7 +2194,7 @@ const makeStreamResponse = Effect.fnUntraced(
                 outputTokens: {
                   total: usage.outputTokens,
                   text: undefined,
-                  reasoning: undefined
+                  reasoning: usage.reasoningTokens
                 }
               },
               response: buildHttpResponseDetails(response),
@@ -2688,13 +2698,26 @@ const makeStreamResponse = Effect.fnUntraced(
                     }
                   }
 
+                  const parsed = yield* Effect.try({
+                    try: () => Tool.unsafeSecureJsonParse(finalParams),
+                    catch: (cause) =>
+                      AiError.make({
+                        module: "AnthropicLanguageModel",
+                        method: "makeStreamResponse",
+                        reason: new AiError.ToolParameterValidationError({
+                          toolName: contentBlock.name,
+                          description: `Failed to securely JSON parse tool parameters: ${cause}`
+                        })
+                      })
+                  }).pipe(Effect.result)
+                  if (parsed._tag === "Failure") {
+                    toolParseError ??= parsed.failure
+                    break
+                  }
+                  const rawParams = parsed.success
                   const params = contentBlock.providerExecuted === true
-                    ? Tool.unsafeSecureJsonParse(finalParams)
-                    : yield* transformToolCallParams(
-                      options.tools,
-                      contentBlock.name,
-                      Tool.unsafeSecureJsonParse(finalParams)
-                    )
+                    ? rawParams
+                    : yield* transformToolCallParams(options.tools, contentBlock.name, rawParams)
 
                   parts.push({
                     type: "tool-call",
@@ -2730,9 +2753,11 @@ const makeStreamResponse = Effect.fnUntraced(
           }
         }
 
+        if (parts.some((part) => part.type === "finish" && part.reason === "length")) toolParseError = undefined
         return parts
       })),
-      Stream.flattenIterable
+      Stream.flattenIterable,
+      Stream.concat(Stream.suspend(() => toolParseError === undefined ? Stream.empty : Stream.fail(toolParseError)))
     )
   }
 )

@@ -106,10 +106,12 @@ export default defineConfig({
           ]
           : undefined
       ),
-      ...project("@effect/ai-anthropic", "packages/ai/anthropic"),
-      ...project("@effect/ai-openai", "packages/ai/openai"),
-      ...project("@effect/ai-openai-compat", "packages/ai/openai-compat"),
-      ...project("@effect/ai-openrouter", "packages/ai/openrouter"),
+      ...project("@tardie/ai", "packages/ai/clavia"),
+      ...project("@tardie/ai-bedrock", "packages/ai/bedrock"),
+      ...project("@tardie/ai-anthropic", "packages/ai/anthropic"),
+      ...project("@tardie/ai-openai", "packages/ai/openai"),
+      ...project("@tardie/ai-openai-compat", "packages/ai/openai-compat"),
+      ...project("@tardie/ai-openrouter", "packages/ai/openrouter"),
       ...project("@effect/atom-react", "packages/atom/react", true, {
         test: {
           environment: "jsdom",

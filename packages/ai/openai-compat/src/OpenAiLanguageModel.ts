@@ -8,6 +8,7 @@
  *
  * @since 4.0.0
  */
+import * as ProviderLanguageModel from "@tardie/ai/LanguageModel"
 import * as Context from "effect/Context"
 import * as DateTime from "effect/DateTime"
 import * as Effect from "effect/Effect"
@@ -21,8 +22,9 @@ import * as Redactable from "effect/Redactable"
 import * as Schema from "effect/Schema"
 import * as AST from "effect/SchemaAST"
 import * as Stream from "effect/Stream"
+import * as Struct from "effect/Struct"
 import type { Span } from "effect/Tracer"
-import type { DeepMutable, Simplify } from "effect/Types"
+import type { DeepMutable } from "effect/Types"
 import * as AiError from "effect/unstable/ai/AiError"
 import * as LanguageModel from "effect/unstable/ai/LanguageModel"
 import * as AiModel from "effect/unstable/ai/Model"
@@ -63,42 +65,61 @@ type ImageDetail = "auto" | "low" | "high"
 // Configuration
 // =============================================================================
 
-type ConfigOptions = Simplify<
-  & Partial<
-    Omit<CreateResponse, "input" | "tools" | "tool_choice" | "stream" | "text">
-  >
-  & {
-    /**
-     * File ID prefixes used to identify file IDs in Responses API.
-     * When undefined, all file data is treated as base64 content.
-     *
-     * Examples:
-     * - OpenAI: ['file-'] for IDs like 'file-abc123'
-     * - Azure OpenAI: ['assistant-'] for IDs like 'assistant-abc123'
-     */
-    readonly fileIdPrefixes?: ReadonlyArray<string> | undefined
-    /**
-     * Configuration options for a text response from the model.
-     */
-    readonly text?: {
-      /**
-       * Constrains the verbosity of the model's response. Lower values will
-       * result in more concise responses, while higher values will result in
-       * more verbose responses.
-       *
-       * Defaults to `"medium"`.
-       */
-      readonly verbosity?: "low" | "medium" | "high" | undefined
-    } | undefined
-    /**
-     * Whether to use strict JSON schema validation.
-     *
-     * Defaults to `true`.
-     */
-    readonly strictJsonSchema?: boolean | undefined
-  }
->
-type ModelConfig = Omit<ConfigOptions, "model"> & { readonly [x: string]: unknown }
+/**
+ * ConfigSchema validates compatible provider defaults and preserves extension fields.
+ *
+ * @category schemas
+ * @since 4.0.0
+ */
+export const ConfigSchema = Schema.StructWithRest(
+  Schema.Struct({
+    metadata: Schema.optional(Schema.NullOr(Schema.Record(Schema.String, Schema.String))),
+    top_logprobs: Schema.optional(Schema.Number),
+    temperature: Schema.optional(Schema.NullOr(Schema.Number)),
+    top_p: Schema.optional(Schema.NullOr(Schema.Number)),
+    user: Schema.optional(Schema.NullOr(Schema.String)),
+    safety_identifier: Schema.optional(Schema.NullOr(Schema.String)),
+    prompt_cache_key: Schema.optional(Schema.NullOr(Schema.String)),
+    service_tier: Schema.optional(Schema.String),
+    prompt_cache_retention: Schema.optional(Schema.NullOr(Schema.Literals(["in-memory", "24h"]))),
+    previous_response_id: Schema.optional(Schema.NullOr(Schema.String)),
+    model: Schema.optional(Schema.String),
+    reasoning: Schema.optional(Schema.Unknown),
+    background: Schema.optional(Schema.NullOr(Schema.Boolean)),
+    max_output_tokens: Schema.optional(Schema.NullOr(Schema.Number)),
+    max_tool_calls: Schema.optional(Schema.NullOr(Schema.Number)),
+    text: Schema.optional(Schema.Struct({ verbosity: Schema.optional(Schema.Literals(["low", "medium", "high"])) })),
+    truncation: Schema.optional(Schema.NullOr(Schema.Literals(["auto", "disabled"]))),
+    include: Schema.optional(Schema.NullOr(Schema.Array(Schema.Literals([
+      "message.input_image.image_url",
+      "reasoning.encrypted_content",
+      "message.output_text.logprobs"
+    ])))),
+    parallel_tool_calls: Schema.optional(Schema.NullOr(Schema.Boolean)),
+    store: Schema.optional(Schema.NullOr(Schema.Boolean)),
+    instructions: Schema.optional(Schema.NullOr(Schema.String)),
+    conversation: Schema.optional(Schema.NullOr(Schema.String)),
+    modalities: Schema.optional(Schema.Array(Schema.Literals(["text", "audio"]))),
+    seed: Schema.optional(Schema.Number),
+    fileIdPrefixes: Schema.optional(Schema.Array(Schema.String)),
+    strictJsonSchema: Schema.optional(Schema.Boolean)
+  }),
+  [Schema.Record(Schema.String, Schema.Unknown)]
+)
+
+type ConfigOptions = typeof ConfigSchema.Encoded
+type ModelConfig = typeof ModelConfigSchema.Encoded
+
+/**
+ * ModelConfigSchema validates defaults supplied alongside a model identifier.
+ *
+ * @category schemas
+ * @since 4.0.0
+ */
+export const ModelConfigSchema = Schema.StructWithRest(
+  ConfigSchema.schema.mapFields(Struct.omit(["model"])),
+  ConfigSchema.records
+)
 
 /**
  * Context service for OpenAI language model configuration.
@@ -149,6 +170,7 @@ declare module "effect/unstable/ai/Prompt" {
    * @since 4.0.0
    */
   export interface ReasoningPartOptions extends ProviderOptions {
+    readonly openaiCompat?: { readonly reasoningField: "reasoning" | "reasoning_content" }
     /**
      * Provider-specific reasoning options for OpenAI-compatible APIs.
      */
@@ -177,6 +199,7 @@ declare module "effect/unstable/ai/Prompt" {
      * Provider-specific tool-call options for OpenAI-compatible APIs.
      */
     readonly openai?: {
+      readonly approvalRequestId?: string | null
       /**
        * The ID of the item to reference.
        */
@@ -199,6 +222,7 @@ declare module "effect/unstable/ai/Prompt" {
      * Provider-specific tool-result options for OpenAI-compatible APIs.
      */
     readonly openai?: {
+      readonly approvalId?: string | null
       /**
        * The ID of the item to reference.
        */
@@ -233,6 +257,7 @@ declare module "effect/unstable/ai/Prompt" {
        * A list of annotations that apply to the output text.
        */
       readonly annotations?: ReadonlyArray<Annotation> | null
+      readonly promptCacheBreakpoint?: { readonly mode: "explicit" } | null
     } | null
   }
 }
@@ -339,6 +364,7 @@ declare module "effect/unstable/ai/Response" {
    * @since 4.0.0
    */
   export interface ReasoningStartPartMetadata extends ProviderMetadata {
+    readonly openaiCompat?: { readonly reasoningField: "reasoning" | "reasoning_content" }
     /**
      * Provider-specific metadata returned for the streamed reasoning start.
      */
@@ -505,6 +531,7 @@ declare module "effect/unstable/ai/Response" {
      * Provider-specific metadata returned when generation finishes.
      */
     readonly openai?: {
+      readonly usage?: Schema.JsonObject
       /**
        * The service tier reported by the OpenAI-compatible provider.
        */
@@ -585,6 +612,13 @@ export const make = Effect.fnUntraced(function*({ model, config: providerConfig 
       readonly options: LanguageModel.ProviderOptions
       readonly toolNameMapper: Tool.NameMapper<Tools>
     }): Effect.fn.Return<CreateResponseRequestJson, AiError.AiError> {
+      if (config.n !== undefined && config.n !== 1) {
+        return yield* AiError.make({
+          module: "OpenAiLanguageModel",
+          method: "makeRequest",
+          reason: AiError.InvalidRequestError.make({ description: "LanguageModel accepts one completion; n must be 1" })
+        })
+      }
       const include = new Set<IncludeEnum>()
       const capabilities = getModelCapabilities(config.model!)
       const messages = yield* prepareMessages({
@@ -619,7 +653,7 @@ export const make = Effect.fnUntraced(function*({ model, config: providerConfig 
     }
   )
 
-  return yield* LanguageModel.make({
+  return yield* ProviderLanguageModel.make({
     codecTransformer: toCodecOpenAI,
     generateText: Effect.fnUntraced(
       function*(options) {
@@ -901,6 +935,7 @@ const prepareMessages = Effect.fnUntraced(
                         type: "reasoning",
                         id,
                         summary: summaryParts,
+                        reasoning_field: part.options.openaiCompat?.reasoningField,
                         encrypted_content: encryptedContent ?? null
                       }
 
@@ -1161,6 +1196,18 @@ const makeStreamResponse = Effect.fnUntraced(
         const parts: Array<Response.StreamPartEncoded> = []
 
         if (event === "[DONE]") {
+          if (finishReason == null || finishReason.length === 0) {
+            return yield* AiError.make({
+              module: "OpenAiLanguageModel",
+              method: "makeStreamResponse",
+              reason: AiError.NetworkError.make({
+                reason: "TransportError",
+                request: buildHttpRequestDetails(response.request),
+                description: "Model stream ended before provider completion"
+              })
+            })
+          }
+
           if (reasoningStarted) {
             parts.push({
               type: "reasoning-end",
@@ -1178,6 +1225,10 @@ const makeStreamResponse = Effect.fnUntraced(
           }
 
           for (const toolCall of Object.values(activeToolCalls)) {
+            if (finishReason === "length") {
+              parts.push({ type: "tool-params-end", id: toolCall.id })
+              continue
+            }
             const toolParams = toolCall.arguments.length > 0 ? toolCall.arguments : "{}"
             const parsedParams = yield* Effect.try({
               try: () => Tool.unsafeSecureJsonParse(toolParams),
@@ -1209,9 +1260,14 @@ const makeStreamResponse = Effect.fnUntraced(
             reason: InternalUtilities.resolveFinishReason(finishReason, hasToolCalls),
             usage: getUsage(usage),
             response: buildHttpResponseDetails(response),
-            ...(normalizedServiceTier !== undefined
-              ? { metadata: { openai: { serviceTier: normalizedServiceTier } } }
-              : undefined)
+            metadata: {
+              openai: {
+                ...(normalizedServiceTier === undefined ? {} : { serviceTier: normalizedServiceTier }),
+                ...(usage == null
+                  ? {}
+                  : { usage: Schema.decodeUnknownSync(Schema.Record(Schema.String, Schema.Json))(usage) })
+              }
+            }
           })
           return parts
         }
@@ -1242,6 +1298,13 @@ const makeStreamResponse = Effect.fnUntraced(
           })
         }
 
+        if (event.choices.some((choice) => choice.index !== 0)) {
+          return yield* AiError.make({
+            module: "OpenAiLanguageModel",
+            method: "streamText",
+            reason: AiError.InvalidOutputError.make({ description: "Expected completion choice index 0" })
+          })
+        }
         const choice = event.choices[0]
         if (Predicate.isUndefined(choice)) {
           return parts
@@ -1254,7 +1317,10 @@ const makeStreamResponse = Effect.fnUntraced(
             parts.push({
               type: "reasoning-start",
               id: reasoningId,
-              metadata: { openai: { ...makeItemIdMetadata(reasoningId) } }
+              metadata: {
+                openai: { ...makeItemIdMetadata(reasoningId) },
+                openaiCompat: { reasoningField: choice.delta?.reasoning != null ? "reasoning" : "reasoning_content" }
+              }
             })
           }
           parts.push({ type: "reasoning-delta", id: reasoningId, delta: reasoningDelta })
@@ -1708,13 +1774,37 @@ const toChatMessages = (
   const messages: Array<CreateResponseRequestJson["messages"][number]> = []
 
   for (const item of input) {
+    if (Predicate.hasProperty(item, "type") && item.type === "reasoning" && item.reasoning_field !== undefined) {
+      const previous = messages.at(-1)
+      const text = item.summary.map((part) => part.text).join("")
+      if (previous?.role === "assistant") {
+        messages[messages.length - 1] = {
+          ...previous,
+          [item.reasoning_field]: (previous[item.reasoning_field] ?? "") + text
+        }
+      } else {
+        messages.push({ role: "assistant", content: null, [item.reasoning_field]: text })
+      }
+      continue
+    }
+    if (Predicate.hasProperty(item, "type") && item.type === "message" && item.role === "assistant") {
+      const previous = messages.at(-1)
+      if (
+        previous?.role === "assistant" &&
+        (previous.reasoning !== undefined || previous.reasoning_content !== undefined) && previous.content === null
+      ) {
+        messages[messages.length - 1] = { ...previous, content: toAssistantChatMessageContent(item.content) }
+        continue
+      }
+    }
+
     if (Predicate.hasProperty(item, "type") && item.type === "function_call") {
       const previous = messages.at(-1)
       const toolCall = toChatToolCall(item)
-      if (previous?.role === "assistant" && previous.tool_calls !== undefined) {
+      if (previous?.role === "assistant") {
         messages[messages.length - 1] = {
           ...previous,
-          tool_calls: [...previous.tool_calls, toolCall]
+          tool_calls: [...(previous.tool_calls ?? []), toolCall]
         }
       } else {
         messages.push({

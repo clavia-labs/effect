@@ -1,4 +1,4 @@
-import { type Generated, OpenAiTool } from "@effect/ai-openai"
+import { type Generated, OpenAiTool } from "@tardie/ai-openai"
 import type { Tool } from "effect/unstable/ai"
 import { describe, expect, it } from "tstyche"
 

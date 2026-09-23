@@ -504,6 +504,7 @@ type OutputMessage = {
  * @since 4.0.0
  */
 export type ReasoningItem = {
+  readonly reasoning_field?: "reasoning" | "reasoning_content" | undefined
   readonly type: "reasoning"
   readonly id: string
   readonly encrypted_content?: string | null | undefined
@@ -961,6 +962,8 @@ export type ChatCompletionRequestToolCall = {
 export type ChatCompletionRequestMessage =
   | {
     readonly role: "system" | "developer" | "user" | "assistant"
+    readonly reasoning?: string | undefined
+    readonly reasoning_content?: string | undefined
     readonly content: string | ReadonlyArray<ChatCompletionContentPart> | null
     readonly tool_calls?: ReadonlyArray<ChatCompletionRequestToolCall> | undefined
   }
@@ -1104,7 +1107,7 @@ const ChatCompletionToolCall = Schema.Struct({
 })
 
 const ChatCompletionToolCallDelta = Schema.Struct({
-  id: Schema.optionalKey(Schema.String),
+  id: Schema.optionalKey(Schema.NullOr(Schema.String)),
   index: Schema.optionalKey(Schema.Int),
   type: Schema.optionalKey(Schema.String),
   function: Schema.optionalKey(ChatCompletionToolFunctionDelta)
@@ -1119,7 +1122,7 @@ const ChatCompletionMessage = Schema.Struct({
 })
 
 const ChatCompletionDelta = Schema.Struct({
-  role: Schema.optionalKey(Schema.String),
+  role: Schema.optionalKey(Schema.NullOr(Schema.String)),
   content: Schema.optionalKey(Schema.NullOr(Schema.String)),
   reasoning: Schema.optionalKey(Schema.NullOr(Schema.String)),
   reasoning_content: Schema.optionalKey(Schema.NullOr(Schema.String)),
@@ -1136,13 +1139,16 @@ const ChatCompletionChoice = Schema.Struct({
   delta: Schema.optionalKey(ChatCompletionDelta)
 })
 
-const ChatCompletionUsage = Schema.Struct({
-  prompt_tokens: Schema.Int,
-  completion_tokens: Schema.Int,
-  total_tokens: Schema.Int,
-  prompt_tokens_details: Schema.optionalKey(Schema.Any),
-  completion_tokens_details: Schema.optionalKey(Schema.Any)
-})
+const ChatCompletionUsage = Schema.StructWithRest(
+  Schema.Struct({
+    prompt_tokens: Schema.Int,
+    completion_tokens: Schema.Int,
+    total_tokens: Schema.Int,
+    prompt_tokens_details: Schema.optionalKey(Schema.Any),
+    completion_tokens_details: Schema.optionalKey(Schema.Any)
+  }),
+  [Schema.Record(Schema.String, Schema.Json)]
+)
 
 const ChatCompletionResponse = Schema.Struct({
   id: Schema.String,

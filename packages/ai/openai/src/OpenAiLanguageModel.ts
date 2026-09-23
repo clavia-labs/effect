@@ -8,6 +8,7 @@
  *
  * @since 4.0.0
  */
+import * as ProviderLanguageModel from "@tardie/ai/LanguageModel"
 import * as Context from "effect/Context"
 import * as DateTime from "effect/DateTime"
 import * as Effect from "effect/Effect"
@@ -20,8 +21,9 @@ import * as Redactable from "effect/Redactable"
 import * as Schema from "effect/Schema"
 import * as AST from "effect/SchemaAST"
 import * as Stream from "effect/Stream"
+import * as Struct from "effect/Struct"
 import type { Span } from "effect/Tracer"
-import type { DeepMutable, Mutable, Simplify } from "effect/Types"
+import type { DeepMutable, Mutable } from "effect/Types"
 import * as AiError from "effect/unstable/ai/AiError"
 import * as IdGenerator from "effect/unstable/ai/IdGenerator"
 import * as LanguageModel from "effect/unstable/ai/LanguageModel"
@@ -35,7 +37,7 @@ import type * as HttpClientResponse from "effect/unstable/http/HttpClientRespons
 import * as Generated from "./Generated.ts"
 import * as InternalUtilities from "./internal/utilities.ts"
 import { OpenAiClient } from "./OpenAiClient.ts"
-import type * as OpenAiSchema from "./OpenAiSchema.ts"
+import * as OpenAiSchema from "./OpenAiSchema.ts"
 import { addGenAIAnnotations } from "./OpenAiTelemetry.ts"
 import type * as OpenAiTool from "./OpenAiTool.ts"
 
@@ -79,47 +81,33 @@ type PromptCacheBreakpoint = { readonly mode: "explicit" }
  * @category services
  * @since 4.0.0
  */
-export class Config extends Context.Service<
-  Config,
-  Simplify<
-    & Partial<
-      Omit<
-        typeof OpenAiSchema.CreateResponse.Encoded,
-        "input" | "tools" | "tool_choice" | "stream" | "text"
-      >
-    >
-    & {
-      /**
-       * File ID prefixes used to identify file IDs in Responses API.
-       * When undefined, all file data is treated as base64 content.
-       *
-       * Examples:
-       * - OpenAI: ['file-'] for IDs like 'file-abc123'
-       * - Azure OpenAI: ['assistant-'] for IDs like 'assistant-abc123'
-       */
-      readonly fileIdPrefixes?: ReadonlyArray<string> | undefined
-      /**
-       * Configuration options for a text response from the model.
-       */
-      readonly text?: {
-        /**
-         * Constrains the verbosity of the model's response. Lower values will
-         * result in more concise responses, while higher values will result in
-         * more verbose responses.
-         *
-         * Defaults to `"medium"`.
-         */
-        readonly verbosity?: "low" | "medium" | "high" | undefined
-      } | undefined
-      /**
-       * Whether to use strict JSON schema validation.
-       *
-       * Defaults to `true`.
-       */
-      readonly strictJsonSchema?: boolean | undefined
-    }
-  >
->()("@effect/ai-openai/OpenAiLanguageModel/Config") {}
+export class Config
+  extends Context.Service<Config, typeof ConfigSchema.Encoded>()("@effect/ai-openai/OpenAiLanguageModel/Config")
+{}
+
+/**
+ * ConfigSchema validates provider configuration (../../clavia/test/ConfigSchema.test.ts).
+ *
+ * @category schemas
+ * @since 4.0.0
+ */
+export const ConfigSchema = Schema.Struct({
+  ...Struct.map(
+    Struct.omit(OpenAiSchema.CreateResponse.fields, ["input", "tools", "tool_choice", "stream", "text"]),
+    Schema.optionalKey
+  ),
+  fileIdPrefixes: Schema.optional(Schema.Array(Schema.String)),
+  text: Schema.optional(Schema.Struct({ verbosity: Schema.optional(Schema.Literals(["low", "medium", "high"])) })),
+  strictJsonSchema: Schema.optional(Schema.Boolean)
+})
+
+/**
+ * ModelConfigSchema validates configuration supplied alongside a model identifier.
+ *
+ * @category schemas
+ * @since 4.0.0
+ */
+export const ModelConfigSchema = ConfigSchema.mapFields(Struct.omit(["model"]))
 
 // =============================================================================
 // Provider Options / Metadata
@@ -543,6 +531,8 @@ declare module "effect/unstable/ai/Response" {
      * Provider-specific metadata returned when generation finishes.
      */
     readonly openai?: {
+      readonly usage?: Schema.JsonObject
+
       /**
        * The service tier reported by OpenAI for the response.
        */
@@ -626,7 +616,7 @@ export const make = Effect.fnUntraced(function*({ model, config: providerConfig 
       readonly options: LanguageModel.ProviderOptions
       readonly toolNameMapper: Tool.NameMapper<Tools>
     }): Effect.fn.Return<typeof OpenAiSchema.CreateResponse.Encoded, AiError.AiError> {
-      const include = new Set<typeof OpenAiSchema.IncludeEnum.Encoded>()
+      const include = new Set<typeof OpenAiSchema.IncludeEnum.Encoded>(config.include ?? [])
       const capabilities = getModelCapabilities(config.model as string)
       const messages = yield* prepareMessages({
         config,
@@ -661,7 +651,7 @@ export const make = Effect.fnUntraced(function*({ model, config: providerConfig 
     }
   )
 
-  return yield* LanguageModel.make({
+  return yield* ProviderLanguageModel.make({
     codecTransformer: toCodecOpenAI,
     generateText: Effect.fnUntraced(
       function*(options) {
@@ -1684,7 +1674,7 @@ const makeResponse = Effect.fnUntraced(
       reason: finishReason,
       usage: getUsage(rawResponse.usage),
       response: buildHttpResponseDetails(response),
-      ...toServiceTier(rawResponse.service_tier)
+      ...finishMetadata(rawResponse.service_tier, rawResponse.usage)
     })
 
     return parts
@@ -1800,6 +1790,7 @@ const makeStreamResponse = Effect.fnUntraced(
         tool.name === "OpenAiWebSearchPreview")
     ) as ReturnType<typeof OpenAiTool.WebSearch> | ReturnType<typeof OpenAiTool.WebSearchPreview> | undefined
 
+    let toolParseError: AiError.AiError | undefined
     return stream.pipe(
       Stream.mapEffect(Effect.fnUntraced(function*(event) {
         const parts: Array<Response.StreamPartEncoded> = []
@@ -1836,7 +1827,7 @@ const makeStreamResponse = Effect.fnUntraced(
               ),
               usage: getUsage(event.response.usage),
               response: buildHttpResponseDetails(response),
-              ...toServiceTier(event.response.service_tier)
+              ...finishMetadata(event.response.service_tier, event.response.usage)
             })
             break
           }
@@ -1850,7 +1841,7 @@ const makeStreamResponse = Effect.fnUntraced(
               reason: "error",
               usage: getUsage(event.response.usage),
               response: buildHttpResponseDetails(response),
-              ...toServiceTier(event.response.service_tier)
+              ...finishMetadata(event.response.service_tier, event.response.usage)
             })
             break
           }
@@ -2168,7 +2159,7 @@ const makeStreamResponse = Effect.fnUntraced(
                 const toolName = event.item.name
                 const toolArgs = event.item.arguments
 
-                const toolParams = yield* Effect.try({
+                const parsed = yield* Effect.try({
                   try: () => Tool.unsafeSecureJsonParse(toolArgs),
                   catch: (cause) =>
                     AiError.make({
@@ -2179,8 +2170,14 @@ const makeStreamResponse = Effect.fnUntraced(
                         description: `Failed securely JSON parse tool parameters: ${cause}`
                       })
                     })
-                })
+                }).pipe(Effect.result)
+                if (parsed._tag === "Failure") {
+                  toolParseError ??= parsed.failure
+                  parts.push({ type: "tool-params-end", id: event.item.call_id })
 
+                  break
+                }
+                const toolParams = parsed.success
                 const params = yield* transformToolCallParams(options.tools, toolName, toolParams)
 
                 parts.push({
@@ -2473,7 +2470,7 @@ const makeStreamResponse = Effect.fnUntraced(
             ) {
               hasToolCalls = true
 
-              const toolParams = yield* Effect.try({
+              const parsed = yield* Effect.try({
                 try: () => Tool.unsafeSecureJsonParse(event.arguments),
                 catch: (cause) =>
                   AiError.make({
@@ -2484,8 +2481,14 @@ const makeStreamResponse = Effect.fnUntraced(
                       description: `Failed securely JSON parse tool parameters: ${cause}`
                     })
                   })
-              })
-
+              }).pipe(Effect.result)
+              if (parsed._tag === "Failure") {
+                toolParseError ??= parsed.failure
+                parts.push({ type: "tool-params-end", id: toolCall.id })
+                toolCall.functionCall.emitted = true
+                break
+              }
+              const toolParams = parsed.success
               const params = yield* transformToolCallParams(options.tools, toolCall.name, toolParams)
 
               parts.push({
@@ -2646,9 +2649,11 @@ const makeStreamResponse = Effect.fnUntraced(
           }
         }
 
+        if (parts.some((part) => part.type === "finish" && part.reason === "length")) toolParseError = undefined
         return parts
       })),
-      Stream.flattenIterable
+      Stream.flattenIterable,
+      Stream.concat(Stream.suspend(() => toolParseError === undefined ? Stream.empty : Stream.fail(toolParseError)))
     )
   }
 )
@@ -3217,4 +3222,13 @@ const transformToolCallParams = Effect.fnUntraced(function*<Tools extends Readon
     ),
     Effect.orElseSucceed(() => toolParams)
   )
+})
+
+const finishMetadata = (tier: string | undefined, usage: OpenAiSchema.ResponseUsage | null | undefined) => ({
+  metadata: {
+    openai: {
+      ...toServiceTier(tier)?.metadata.openai,
+      ...(usage == null ? {} : { usage: Schema.decodeUnknownSync(Schema.Record(Schema.String, Schema.Json))(usage) })
+    }
+  }
 })

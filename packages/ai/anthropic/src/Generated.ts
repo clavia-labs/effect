@@ -329,10 +329,11 @@ export const BetaDeleteSkillVersionResponse = Schema.Struct({
 export type BetaDirectCaller = { readonly "type": "direct" }
 export const BetaDirectCaller = Schema.Struct({ "type": Schema.Literal("direct").annotate({ "title": "Type" }) })
   .annotate({ "title": "DirectCaller", "description": "Tool invocation directly from the model." })
-export type BetaEffortLevel = "low" | "medium" | "high" | "max"
-export const BetaEffortLevel = Schema.Literals(["low", "medium", "high", "max"]).annotate({
+export type BetaEffortLevel = "low" | "medium" | "high" | "xhigh" | "max"
+export const BetaEffortLevel = Schema.Literals(["low", "medium", "high", "xhigh", "max"]).annotate({
   "title": "EffortLevel",
-  "description": "All possible effort levels."
+  "description": "All possible effort levels.",
+  "identifier": "BetaEffortLevel"
 })
 export type BetaExpiredResult = { readonly "type": "expired" }
 export const BetaExpiredResult = Schema.Struct({
@@ -1338,21 +1339,42 @@ export const BetaTextEditorCodeExecutionToolResultErrorCode = Schema.Literals([
   "execution_time_exceeded",
   "file_not_found"
 ]).annotate({ "title": "TextEditorCodeExecutionToolResultErrorCode" })
-export type BetaThinkingConfigAdaptive = { readonly "type": "adaptive" }
+export type BetaThinkingConfigAdaptive = {
+  readonly "display"?: "summarized" | "omitted" | null
+  readonly "type": "adaptive"
+}
 export const BetaThinkingConfigAdaptive = Schema.Struct({
+  "display": Schema.optionalKey(
+    Schema.Union([Schema.Literals(["summarized", "omitted"]), Schema.Null]).annotate({
+      "title": "Display",
+      "description":
+        "Controls how thinking content appears in the response. When set to `summarized`, thinking is returned normally. When set to `omitted`, thinking content is redacted but a signature is returned for multi-turn continuity. Defaults to `summarized`."
+    })
+  ),
   "type": Schema.Literal("adaptive").annotate({ "title": "Type" })
 }).annotate({ "title": "ThinkingConfigAdaptive" })
 export type BetaThinkingConfigDisabled = { readonly "type": "disabled" }
 export const BetaThinkingConfigDisabled = Schema.Struct({
   "type": Schema.Literal("disabled").annotate({ "title": "Type" })
 }).annotate({ "title": "ThinkingConfigDisabled" })
-export type BetaThinkingConfigEnabled = { readonly "budget_tokens": number; readonly "type": "enabled" }
+export type BetaThinkingConfigEnabled = {
+  readonly "budget_tokens": number
+  readonly "display"?: "summarized" | "omitted" | null
+  readonly "type": "enabled"
+}
 export const BetaThinkingConfigEnabled = Schema.Struct({
   "budget_tokens": Schema.Number.annotate({
     "title": "Budget Tokens",
     "description":
       "Determines how many tokens Claude can use for its internal reasoning process. Larger budgets can enable more thorough analysis for complex problems, improving response quality.\n\nMust be ≥1024 and less than `max_tokens`.\n\nSee [extended thinking](https://docs.claude.com/en/docs/build-with-claude/extended-thinking) for details."
   }).check(Schema.isInt()).check(Schema.isGreaterThanOrEqualTo(1024)),
+  "display": Schema.optionalKey(
+    Schema.Union([Schema.Literals(["summarized", "omitted"]), Schema.Null]).annotate({
+      "title": "Display",
+      "description":
+        "Controls how thinking content appears in the response. When set to `summarized`, thinking is returned normally. When set to `omitted`, thinking content is redacted but a signature is returned for multi-turn continuity. Defaults to `summarized`."
+    })
+  ),
   "type": Schema.Literal("enabled").annotate({ "title": "Type" })
 }).annotate({ "title": "ThinkingConfigEnabled" })
 export type BetaThinkingContentBlockDelta = { readonly "thinking": string; readonly "type": "thinking_delta" }
@@ -1784,10 +1806,11 @@ export const DirectCaller = Schema.Struct({ "type": Schema.Literal("direct").ann
   "title": "DirectCaller",
   "description": "Tool invocation directly from the model."
 })
-export type EffortLevel = "low" | "medium" | "high" | "max"
-export const EffortLevel = Schema.Literals(["low", "medium", "high", "max"]).annotate({
+export type EffortLevel = "low" | "medium" | "high" | "xhigh" | "max"
+export const EffortLevel = Schema.Literals(["low", "medium", "high", "xhigh", "max"]).annotate({
   "title": "EffortLevel",
-  "description": "All possible effort levels."
+  "description": "All possible effort levels.",
+  "identifier": "EffortLevel"
 })
 export type ExpiredResult = { readonly "type": "expired" }
 export const ExpiredResult = Schema.Struct({
@@ -2686,21 +2709,42 @@ export const TextEditorCodeExecutionToolResultErrorCode = Schema.Literals([
   "execution_time_exceeded",
   "file_not_found"
 ]).annotate({ "title": "TextEditorCodeExecutionToolResultErrorCode" })
-export type ThinkingConfigAdaptive = { readonly "type": "adaptive" }
+export type ThinkingConfigAdaptive = {
+  readonly "display"?: "summarized" | "omitted" | null
+  readonly "type": "adaptive"
+}
 export const ThinkingConfigAdaptive = Schema.Struct({
+  "display": Schema.optionalKey(
+    Schema.Union([Schema.Literals(["summarized", "omitted"]), Schema.Null]).annotate({
+      "title": "Display",
+      "description":
+        "Controls how thinking content appears in the response. When set to `summarized`, thinking is returned normally. When set to `omitted`, thinking content is redacted but a signature is returned for multi-turn continuity. Defaults to `summarized`."
+    })
+  ),
   "type": Schema.Literal("adaptive").annotate({ "title": "Type" })
 }).annotate({ "title": "ThinkingConfigAdaptive" })
 export type ThinkingConfigDisabled = { readonly "type": "disabled" }
 export const ThinkingConfigDisabled = Schema.Struct({
   "type": Schema.Literal("disabled").annotate({ "title": "Type" })
 }).annotate({ "title": "ThinkingConfigDisabled" })
-export type ThinkingConfigEnabled = { readonly "budget_tokens": number; readonly "type": "enabled" }
+export type ThinkingConfigEnabled = {
+  readonly "budget_tokens": number
+  readonly "display"?: "summarized" | "omitted" | null
+  readonly "type": "enabled"
+}
 export const ThinkingConfigEnabled = Schema.Struct({
   "budget_tokens": Schema.Number.annotate({
     "title": "Budget Tokens",
     "description":
       "Determines how many tokens Claude can use for its internal reasoning process. Larger budgets can enable more thorough analysis for complex problems, improving response quality.\n\nMust be ≥1024 and less than `max_tokens`.\n\nSee [extended thinking](https://docs.claude.com/en/docs/build-with-claude/extended-thinking) for details."
   }).check(Schema.isInt()).check(Schema.isGreaterThanOrEqualTo(1024)),
+  "display": Schema.optionalKey(
+    Schema.Union([Schema.Literals(["summarized", "omitted"]), Schema.Null]).annotate({
+      "title": "Display",
+      "description":
+        "Controls how thinking content appears in the response. When set to `summarized`, thinking is returned normally. When set to `omitted`, thinking content is redacted but a signature is returned for multi-turn continuity. Defaults to `summarized`."
+    })
+  ),
   "type": Schema.Literal("enabled").annotate({ "title": "Type" })
 }).annotate({ "title": "ThinkingConfigEnabled" })
 export type ThinkingContentBlockDelta = { readonly "thinking": string; readonly "type": "thinking_delta" }
@@ -7278,6 +7322,7 @@ export type MessageDeltaEvent = {
     readonly "cache_read_input_tokens": number | null
     readonly "input_tokens": number | null
     readonly "output_tokens": number
+    readonly "output_tokens_details"?: { readonly "thinking_tokens": number } | null
     readonly "server_tool_use"?: ServerToolUsage | null
   }
 }
@@ -7313,6 +7358,22 @@ export const MessageDeltaEvent = Schema.Struct({
       "title": "Output Tokens",
       "description": "The cumulative number of output tokens which were used."
     }).check(Schema.isInt()),
+    "output_tokens_details": Schema.optionalKey(
+      Schema.Union([
+        Schema.Struct({
+          "thinking_tokens": Schema.Number.annotate({
+            "title": "Thinking Tokens",
+            "description":
+              "Number of output tokens the model generated as internal reasoning, including the thinking-block delimiter tokens."
+          }).check(Schema.isInt()).check(Schema.isGreaterThanOrEqualTo(0))
+        }).annotate({ "title": "OutputTokensDetails" }),
+        Schema.Null
+      ]).annotate({
+        "description":
+          "Breakdown of output tokens. Reflects the raw reasoning the model produced, not the (possibly shorter) summarized thinking text returned in the response body.",
+        "default": null
+      })
+    ),
     "server_tool_use": Schema.optionalKey(
       Schema.Union([ServerToolUsage, Schema.Null]).annotate({
         "description": "The number of server tool requests.",
@@ -7376,6 +7437,7 @@ export type BetaMessageDeltaEvent = {
     readonly "input_tokens": number | null
     readonly "iterations"?: BetaIterationsUsage
     readonly "output_tokens": number
+    readonly "output_tokens_details"?: { readonly "thinking_tokens": number } | null
     readonly "server_tool_use"?: BetaServerToolUsage | null
   }
 }
@@ -7418,6 +7480,22 @@ export const BetaMessageDeltaEvent = Schema.Struct({
       "title": "Output Tokens",
       "description": "The cumulative number of output tokens which were used."
     }).check(Schema.isInt()),
+    "output_tokens_details": Schema.optionalKey(
+      Schema.Union([
+        Schema.Struct({
+          "thinking_tokens": Schema.Number.annotate({
+            "title": "Thinking Tokens",
+            "description":
+              "Number of output tokens the model generated as internal reasoning, including the thinking-block delimiter tokens."
+          }).check(Schema.isInt()).check(Schema.isGreaterThanOrEqualTo(0))
+        }).annotate({ "title": "OutputTokensDetails" }),
+        Schema.Null
+      ]).annotate({
+        "description":
+          "Breakdown of output tokens. Reflects the raw reasoning the model produced, not the (possibly shorter) summarized thinking text returned in the response body.",
+        "default": null
+      })
+    ),
     "server_tool_use": Schema.optionalKey(
       Schema.Union([BetaServerToolUsage, Schema.Null]).annotate({
         "description": "The number of server tool requests.",
@@ -7722,6 +7800,7 @@ export type BetaMessage = {
     readonly "input_tokens": number
     readonly "iterations"?: BetaIterationsUsage
     readonly "output_tokens": number
+    readonly "output_tokens_details"?: { readonly "thinking_tokens": number } | null
     readonly "server_tool_use"?: BetaServerToolUsage | null
     readonly "service_tier": "standard" | "priority" | "batch" | null
     readonly "speed"?: BetaSpeed | null
@@ -7796,6 +7875,22 @@ export const BetaMessage = Schema.Struct({
       "title": "Output Tokens",
       "description": "The number of output tokens which were used."
     }).check(Schema.isInt()).check(Schema.isGreaterThanOrEqualTo(0)),
+    "output_tokens_details": Schema.optionalKey(
+      Schema.Union([
+        Schema.Struct({
+          "thinking_tokens": Schema.Number.annotate({
+            "title": "Thinking Tokens",
+            "description":
+              "Number of output tokens the model generated as internal reasoning, including the thinking-block delimiter tokens."
+          }).check(Schema.isInt()).check(Schema.isGreaterThanOrEqualTo(0))
+        }).annotate({ "title": "OutputTokensDetails" }),
+        Schema.Null
+      ]).annotate({
+        "description":
+          "Breakdown of output tokens. Reflects the raw reasoning the model produced, not the (possibly shorter) summarized thinking text returned in the response body.",
+        "default": null
+      })
+    ),
     "server_tool_use": Schema.optionalKey(
       Schema.Union([BetaServerToolUsage, Schema.Null]).annotate({
         "description": "The number of server tool requests.",
@@ -7875,6 +7970,7 @@ export type Message = {
     readonly "inference_geo": string | null
     readonly "input_tokens": number
     readonly "output_tokens": number
+    readonly "output_tokens_details"?: { readonly "thinking_tokens": number } | null
     readonly "server_tool_use"?: ServerToolUsage | null
     readonly "service_tier": "standard" | "priority" | "batch" | null
   }
@@ -7946,6 +8042,22 @@ export const Message = Schema.Struct({
       "title": "Output Tokens",
       "description": "The number of output tokens which were used."
     }).check(Schema.isInt()).check(Schema.isGreaterThanOrEqualTo(0)),
+    "output_tokens_details": Schema.optionalKey(
+      Schema.Union([
+        Schema.Struct({
+          "thinking_tokens": Schema.Number.annotate({
+            "title": "Thinking Tokens",
+            "description":
+              "Number of output tokens the model generated as internal reasoning, including the thinking-block delimiter tokens."
+          }).check(Schema.isInt()).check(Schema.isGreaterThanOrEqualTo(0))
+        }).annotate({ "title": "OutputTokensDetails" }),
+        Schema.Null
+      ]).annotate({
+        "description":
+          "Breakdown of output tokens. Reflects the raw reasoning the model produced, not the (possibly shorter) summarized thinking text returned in the response body.",
+        "default": null
+      })
+    ),
     "server_tool_use": Schema.optionalKey(
       Schema.Union([ServerToolUsage, Schema.Null]).annotate({
         "description": "The number of server tool requests.",

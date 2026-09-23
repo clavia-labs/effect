@@ -1,5 +1,5 @@
-import { OpenAiClient, OpenAiLanguageModel } from "@effect/ai-openai-compat"
 import { assert, describe, it } from "@effect/vitest"
+import { OpenAiClient, OpenAiLanguageModel } from "@tardie/ai-openai-compat"
 import { Effect, Layer, Redacted, Ref, Schema, Stream } from "effect"
 import { type AiError, LanguageModel, Prompt, Tool, Toolkit } from "effect/unstable/ai"
 import { HttpClient, type HttpClientError, type HttpClientRequest, HttpClientResponse } from "effect/unstable/http"
@@ -938,6 +938,27 @@ describe("OpenAiLanguageModel", () => {
   })
 
   describe("streamText", () => {
+    it.effect("rejects a sentinel without provider completion", () =>
+      Effect.gen(function*() {
+        const layer = OpenAiClient.layer({ apiKey: Redacted.make("sk-test-key") }).pipe(
+          Layer.provide(Layer.succeed(
+            HttpClient.HttpClient,
+            makeHttpClient((request) => Effect.succeed(sseResponse(request, ["[DONE]"])))
+          ))
+        )
+        const result = yield* LanguageModel.streamText({ prompt: "test" }).pipe(
+          Stream.runCollect,
+          Effect.provide(OpenAiLanguageModel.model("gpt-4o-mini")),
+          Effect.provide(layer),
+          Effect.result
+        )
+        assert.strictEqual(result._tag, "Failure")
+        if (result._tag === "Failure") {
+          assert.strictEqual(result.failure.reason._tag, "NetworkError")
+          assert.strictEqual(result.failure.isRetryable, true)
+        }
+      }))
+
     it.effect("handles chat completion stream chunks", () =>
       Effect.gen(function*() {
         const layer = OpenAiClient.layer({ apiKey: Redacted.make("sk-test-key") }).pipe(
@@ -1000,6 +1021,13 @@ describe("OpenAiLanguageModel", () => {
                     },
                     finish_reason: null
                   }]
+                },
+                {
+                  id: "chatcmpl_nullable_tool_calls",
+                  object: "chat.completion.chunk",
+                  model: "inception/mercury-2",
+                  created: 1,
+                  choices: [{ index: 0, delta: {}, finish_reason: "stop" }]
                 },
                 "[DONE]"
               ]))
@@ -1072,6 +1100,71 @@ describe("OpenAiLanguageModel", () => {
           return
         }
         assert.deepStrictEqual(toolCall.params, { env: { PATH: "/usr/bin" } })
+      }))
+
+    it.effect("keeps complete tool calls and drops a truncated one when the stream finishes at the output limit", () =>
+      Effect.gen(function*() {
+        const layer = OpenAiClient.layer({ apiKey: Redacted.make("sk-test-key") }).pipe(
+          Layer.provide(Layer.succeed(
+            HttpClient.HttpClient,
+            makeHttpClient((request) =>
+              Effect.succeed(sseResponse(request, [
+                {
+                  id: "chatcmpl_length_1",
+                  object: "chat.completion.chunk",
+                  model: "gpt-4o-mini",
+                  created: 1,
+                  choices: [{
+                    index: 0,
+                    delta: {
+                      tool_calls: [{
+                        index: 0,
+                        id: "call_complete",
+                        type: "function",
+                        function: { name: "TestTool", arguments: JSON.stringify({ input: "kept" }) }
+                      }, {
+                        index: 1,
+                        id: "call_truncated",
+                        type: "function",
+                        function: { name: "TestTool", arguments: "{\"input\": \"cut o" }
+                      }]
+                    },
+                    finish_reason: null
+                  }]
+                },
+                {
+                  id: "chatcmpl_length_1",
+                  object: "chat.completion.chunk",
+                  model: "gpt-4o-mini",
+                  created: 1,
+                  choices: [{ index: 0, delta: {}, finish_reason: "length" }]
+                },
+                "[DONE]"
+              ]))
+            )
+          ))
+        )
+
+        const parts = globalThis.Array.from(
+          yield* LanguageModel.streamText({
+            prompt: "call the tool twice",
+            toolkit: TestToolkit,
+            disableToolCallResolution: true
+          }).pipe(
+            Stream.runCollect,
+            Effect.provide(OpenAiLanguageModel.model("gpt-4o-mini")),
+            Effect.provide(TestToolkitLayer),
+            Effect.provide(layer)
+          )
+        )
+
+        const toolCalls = parts.filter((part) => part.type === "tool-call")
+        assert.deepStrictEqual(
+          toolCalls.map((part) => part.type === "tool-call" ? [part.id, part.params] : undefined),
+          [["call_complete", { input: "kept" }]]
+        )
+        const finish = parts.find((part) => part.type === "finish")
+        assert.strictEqual(finish?.type === "finish" ? finish.reason : undefined, "length")
       }))
 
     it.effect("maps local shell stream tool calls to local_shell call outputs", () =>
@@ -1533,6 +1626,77 @@ describe("OpenAiLanguageModel", () => {
         if (toolCall?.type !== "tool-call") {
           return
         }
+        assert.strictEqual(toolCall.name, "TestTool")
+        assert.deepStrictEqual(toolCall.params, { input: "hello" })
+      }))
+
+    it.effect("preserves Kimi tool calls with null role and continuation id", () =>
+      Effect.gen(function*() {
+        const chunk = (fnDelta: Record<string, unknown>) => ({
+          id: "chatcmpl_null_name_1",
+          object: "chat.completion.chunk",
+          model: "gpt-4o-mini",
+          created: 1,
+          choices: [{
+            index: 0,
+            delta: {
+              role: null,
+              content: null,
+              reasoning_content: null,
+              tool_calls: [{
+                index: 0,
+                id: fnDelta.name === null ? null : "call_1",
+                type: "function",
+                function: fnDelta
+              }]
+            }
+          }]
+        })
+
+        const layer = OpenAiClient.layer({ apiKey: Redacted.make("sk-test-key") }).pipe(
+          Layer.provide(Layer.succeed(
+            HttpClient.HttpClient,
+            makeHttpClient((request) =>
+              Effect.succeed(sseResponse(request, [
+                chunk({ name: "TestTool", arguments: "" }),
+                chunk({ name: null, arguments: "{\"in" }),
+                chunk({ name: null, arguments: "put\":\"hel" }),
+                chunk({ name: null, arguments: "lo\"}" }),
+                {
+                  id: "chatcmpl_null_name_1",
+                  object: "chat.completion.chunk",
+                  model: "gpt-4o-mini",
+                  created: 1,
+                  choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }]
+                },
+                "[DONE]"
+              ]))
+            )
+          ))
+        )
+
+        const partsChunk = yield* LanguageModel.streamText({
+          prompt: "use the tool",
+          toolkit: TestToolkit,
+          disableToolCallResolution: true
+        }).pipe(
+          Stream.runCollect,
+          Effect.provide(OpenAiLanguageModel.model("gpt-4o-mini")),
+          Effect.provide(TestToolkitLayer),
+          Effect.provide(layer)
+        )
+
+        const parts = globalThis.Array.from(partsChunk)
+        const paramsDeltas = parts.filter((part) => part.type === "tool-params-delta")
+        assert.isAbove(paramsDeltas.length, 0)
+
+        const toolCall = parts.find((part) => part.type === "tool-call")
+        assert.isDefined(toolCall)
+        if (toolCall?.type !== "tool-call") {
+          return
+        }
+        assert.strictEqual(parts.filter((part) => part.type === "tool-call").length, 1)
+        assert.strictEqual(toolCall.id, "call_1")
         assert.strictEqual(toolCall.name, "TestTool")
         assert.deepStrictEqual(toolCall.params, { input: "hello" })
       }))

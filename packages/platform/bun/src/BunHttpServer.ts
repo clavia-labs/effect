@@ -46,7 +46,7 @@ import type { HttpPlatform } from "effect/unstable/http/HttpPlatform"
 import * as Server from "effect/unstable/http/HttpServer"
 import * as Error from "effect/unstable/http/HttpServerError"
 import * as ServerRequest from "effect/unstable/http/HttpServerRequest"
-import type * as ServerResponse from "effect/unstable/http/HttpServerResponse"
+import * as ServerResponse from "effect/unstable/http/HttpServerResponse"
 import type * as Multipart from "effect/unstable/http/Multipart"
 import * as UrlParams from "effect/unstable/http/UrlParams"
 import * as NetAddress from "effect/unstable/net/NetAddress"
@@ -120,9 +120,9 @@ export const make = Effect.fnUntraced(
     let listenOptions = options
     if (!("unix" in options) || options.unix === undefined) {
       const internetOptions = options as Bun.Serve.HostnamePortServeOptions<WebSocketContext>
-      const hostname = internetOptions.hostname ?? "0.0.0.0"
+      let hostname = internetOptions.hostname ?? "::"
       if (Result.isFailure(NetAddress.ipFromString(hostname))) {
-        const resolved = yield* Effect.tryPromise({
+        hostname = yield* Effect.tryPromise({
           try: async () => {
             const result = await Bun.dns.lookup(hostname, { socketType: "tcp" })
             if (result.length === 0) throw new globalThis.Error(`Could not resolve hostname: ${hostname}`)
@@ -130,8 +130,8 @@ export const make = Effect.fnUntraced(
           },
           catch: (cause) => new Error.ServeError({ cause })
         })
-        listenOptions = { ...options, hostname: resolved }
       }
+      listenOptions = { ...options, hostname }
     }
     const { compressionThreshold = MIN_COMPRESSIBLE_SIZE, ...websocket } = options.websocket ?? {}
     const handlerStack: Array<(request: Request, server: BunServer<WebSocketContext>) => Response | Promise<Response>> =
@@ -232,6 +232,9 @@ const makeResponse = (
   context: Context.Context<never>,
   scope: Scope.Scope
 ): Response => {
+  if (ServerResponse.omitsBody(response, request.method === "HEAD")) {
+    return ServerResponse.toWeb(response, { withoutBody: true })
+  }
   const fields: {
     headers: globalThis.Headers
     status?: number
@@ -251,9 +254,6 @@ const makeResponse = (
     fields.statusText = response.statusText
   }
 
-  if (request.method === "HEAD") {
-    return new Response(undefined, fields)
-  }
   response = HttpEffect.scopeTransferToStream(response)
   const body = response.body
   switch (body._tag) {

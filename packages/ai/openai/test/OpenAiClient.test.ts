@@ -1,10 +1,10 @@
-import type { OpenAiSchema } from "@effect/ai-openai"
-import type * as Generated from "@effect/ai-openai/Generated"
-import * as Errors from "@effect/ai-openai/internal/errors"
-import * as OpenAiClient from "@effect/ai-openai/OpenAiClient"
-import * as OpenAiClientGenerated from "@effect/ai-openai/OpenAiClientGenerated"
-import * as OpenAiConfig from "@effect/ai-openai/OpenAiConfig"
 import { assert, describe, it } from "@effect/vitest"
+import type { OpenAiSchema } from "@tardie/ai-openai"
+import type * as Generated from "@tardie/ai-openai/Generated"
+import * as Errors from "@tardie/ai-openai/internal/errors"
+import * as OpenAiClient from "@tardie/ai-openai/OpenAiClient"
+import * as OpenAiClientGenerated from "@tardie/ai-openai/OpenAiClientGenerated"
+import * as OpenAiConfig from "@tardie/ai-openai/OpenAiConfig"
 import { Config, ConfigProvider, Context, Effect, Layer, Redacted, Schema, Stream } from "effect"
 import * as HttpClient from "effect/unstable/http/HttpClient"
 import * as HttpClientError from "effect/unstable/http/HttpClientError"
@@ -506,6 +506,39 @@ describe("OpenAiClient", () => {
   })
 
   describe("createResponseStream", () => {
+    for (const segmented of [false, true]) {
+      for (const type of ["response.completed", "response.incomplete", "response.failed"] as const) {
+        for (const trailing of ["[DONE]", "{"]) {
+          it.effect(`preserves ${type} before ${trailing} (segmented: ${segmented})`, () =>
+            Effect.gen(function*() {
+              const client = yield* OpenAiClient.OpenAiClient
+              const [, stream] = yield* client.createResponseStream({ model: "gpt-4o", input: "test" })
+              const events = yield* Stream.runCollect(stream)
+              assert.deepStrictEqual(events.map((event) => event.type), [type])
+            }).pipe(Effect.provide(makeTestLayer(undefined, {
+              _tag: "Sse",
+              events: [{ type, sequence_number: 1, response: makeResponseBody() }, trailing],
+              segmented
+            }))))
+        }
+      }
+    }
+
+    it.effect("does not fabricate completion for a bare DONE", () =>
+      Effect.gen(function*() {
+        const client = yield* OpenAiClient.OpenAiClient
+        const [, stream] = yield* client.createResponseStream({ model: "gpt-4o", input: "test" })
+        assert.deepStrictEqual(yield* Stream.runCollect(stream), [])
+      }).pipe(Effect.provide(makeTestLayer(undefined, { _tag: "Sse", events: ["[DONE]"] }))))
+
+    it.effect("rejects malformed JSON before DONE", () =>
+      Effect.gen(function*() {
+        const client = yield* OpenAiClient.OpenAiClient
+        const [, stream] = yield* client.createResponseStream({ model: "gpt-4o", input: "test" })
+        const error = yield* Stream.runCollect(stream).pipe(Effect.flip)
+        assert.strictEqual(error.reason._tag, "InvalidOutputError")
+      }).pipe(Effect.provide(makeTestLayer(undefined, { _tag: "Sse", events: ["{", "[DONE]"] }))))
+
     it.live("terminates an SSE stream at response.failed", () =>
       Effect.gen(function*() {
         const client = yield* OpenAiClient.OpenAiClient
@@ -782,7 +815,8 @@ type MockResponse =
   }
   | {
     readonly _tag: "Sse"
-    readonly events: ReadonlyArray<typeof OpenAiSchema.ResponseStreamEvent.Encoded>
+    readonly events: ReadonlyArray<typeof OpenAiSchema.ResponseStreamEvent.Encoded | string>
+    readonly segmented?: boolean | undefined
     readonly keepOpen?: boolean | undefined
     readonly status?: number | undefined
     readonly headers?: Record<string, string> | undefined
@@ -902,7 +936,9 @@ const makeResponse = (
     : "text/event-stream"
   const body = response._tag === "Json"
     ? JSON.stringify(response.body)
-    : response.events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join("")
+    : response.events.map((event) => `data: ${(typeof event === "string" ? event : JSON.stringify(event))}\n\n`).join(
+      ""
+    )
 
   const httpResponse = HttpClientResponse.fromWeb(
     request,
@@ -914,11 +950,16 @@ const makeResponse = (
       }
     })
   )
-  if (response._tag !== "Sse" || response.keepOpen !== true) return httpResponse
+  if (response._tag !== "Sse" || (response.keepOpen !== true && response.segmented !== true)) return httpResponse
 
   const stream = Stream.concat(
-    Stream.succeed(new TextEncoder().encode(body)),
-    Stream.never
+    response.segmented === true
+      ? Stream.fromIterable(body.split("\n\n").filter(Boolean)).pipe(
+        Stream.map((frame) => new TextEncoder().encode(`${frame}\n\n`)),
+        Stream.rechunk(1)
+      )
+      : Stream.succeed(new TextEncoder().encode(body)),
+    response.keepOpen === true ? Stream.never : Stream.empty
   )
   // `fromWeb` stores the ReadableStream internally, so a proxy is needed to replace it with a non-terminating test stream.
   return new Proxy(httpResponse, {
