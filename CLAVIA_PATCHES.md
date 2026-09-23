@@ -136,3 +136,11 @@ The AWS SDK may leave buffered bytes readable after decoding fails, but a stream
 Local request validation emits `InvalidUserInputError`. Missing or malformed provider responses emit `InvalidOutputError`. AWS request rejections retain `InvalidRequestError`, while authentication, quota, throttling, and service failures use their Effect error reasons. The original exception name is retained as `reason.metadata.bedrock.errorType`, following the provider error metadata convention. HTTP status remains usable when SDK error-body decoding fails. Consumers can use native `isRetryable` after separating local input failures from provider failures.
 
 `packages/ai/bedrock/test/BedrockLanguageModel.test.ts` checks local rejection before dispatch, malformed response classification, SDK and stream exception evidence, HTTP 503 retryability, and serialized error round trips.
+
+## Anthropic thinking display and reasoning usage
+
+Thinking configuration accepts `display` (`"summarized"` or `"omitted"`) for adaptive and enabled thinking. Without it, callers cannot request a visible thinking summary from adaptive thinking. The configuration schema previously rejected the field.
+
+Responses report `usage.output_tokens_details.thinking_tokens`. The adapter maps it to `outputTokens.reasoning` for generated and streamed responses. A later `message_delta` without the detail keeps the earlier count. The fields are added to the generated schemas and recorded as a spec patch in `codegen.yml`.
+
+`packages/ai/anthropic/test/AnthropicLanguageModel.test.ts` checks configuration decoding, the request body for both thinking types, and reasoning usage with and without the detail.
