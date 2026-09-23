@@ -1245,69 +1245,81 @@ describe("AnthropicLanguageModel", () => {
         assert.isUndefined(response.usage.outputTokens.reasoning)
       }))
 
-    it.effect("keeps streamed thinking tokens when a later message_delta omits them", () =>
-      Effect.gen(function*() {
-        const layer = AnthropicClient.layer({ apiKey: Redacted.make("sk-test-key") }).pipe(
-          Layer.provide(Layer.succeed(
-            HttpClient.HttpClient,
-            makeHttpClient((request) =>
-              Effect.succeed(sseResponse(request, [
-                {
-                  type: "message_start",
-                  message: { ...thinkingMessage(), content: [], stop_reason: null, usage: messageUsage() }
-                },
-                {
-                  type: "content_block_start",
-                  index: 0,
-                  content_block: { type: "text", text: "" }
-                },
-                {
-                  type: "content_block_delta",
-                  index: 0,
-                  delta: { type: "text_delta", text: "Hello" }
-                },
-                { type: "content_block_stop", index: 0 },
-                {
-                  type: "message_delta",
-                  delta: { stop_reason: "end_turn", stop_sequence: null },
-                  usage: {
-                    cache_creation_input_tokens: null,
-                    cache_read_input_tokens: null,
-                    input_tokens: null,
-                    output_tokens: 40,
-                    output_tokens_details: { thinking_tokens: 32 }
-                  }
-                },
-                {
-                  type: "message_delta",
-                  delta: { stop_reason: "end_turn", stop_sequence: null },
-                  usage: {
-                    cache_creation_input_tokens: null,
-                    cache_read_input_tokens: null,
-                    input_tokens: null,
-                    output_tokens: 41
-                  }
-                },
-                { type: "message_stop" }
-              ]))
-            )
-          ))
-        )
+    for (
+      const [name, firstThinkingTokens, finalThinkingTokens] of [
+        ["reads thinking tokens from the final message_delta", undefined, 32],
+        ["keeps thinking tokens when a later message_delta omits them", 32, undefined]
+      ] as const
+    ) {
+      it.effect(name, () =>
+        Effect.gen(function*() {
+          const layer = AnthropicClient.layer({ apiKey: Redacted.make("sk-test-key") }).pipe(
+            Layer.provide(Layer.succeed(
+              HttpClient.HttpClient,
+              makeHttpClient((request) =>
+                Effect.succeed(sseResponse(request, [
+                  {
+                    type: "message_start",
+                    message: { ...thinkingMessage(), content: [], stop_reason: null, usage: messageUsage() }
+                  },
+                  {
+                    type: "content_block_start",
+                    index: 0,
+                    content_block: { type: "text", text: "" }
+                  },
+                  {
+                    type: "content_block_delta",
+                    index: 0,
+                    delta: { type: "text_delta", text: "Hello" }
+                  },
+                  { type: "content_block_stop", index: 0 },
+                  {
+                    type: "message_delta",
+                    delta: { stop_reason: "end_turn", stop_sequence: null },
+                    usage: {
+                      cache_creation_input_tokens: null,
+                      cache_read_input_tokens: null,
+                      input_tokens: null,
+                      output_tokens: 40,
+                      ...(firstThinkingTokens === undefined
+                        ? {}
+                        : { output_tokens_details: { thinking_tokens: firstThinkingTokens } })
+                    }
+                  },
+                  {
+                    type: "message_delta",
+                    delta: { stop_reason: "end_turn", stop_sequence: null },
+                    usage: {
+                      cache_creation_input_tokens: null,
+                      cache_read_input_tokens: null,
+                      input_tokens: null,
+                      output_tokens: 41,
+                      ...(finalThinkingTokens === undefined
+                        ? {}
+                        : { output_tokens_details: { thinking_tokens: finalThinkingTokens } })
+                    }
+                  },
+                  { type: "message_stop" }
+                ]))
+              )
+            ))
+          )
 
-        const partsChunk = yield* LanguageModel.streamText({ prompt: "Hello" }).pipe(
-          Stream.runCollect,
-          Effect.provide(AnthropicLanguageModel.model(model)),
-          Effect.provide(layer)
-        )
+          const partsChunk = yield* LanguageModel.streamText({ prompt: "Hello" }).pipe(
+            Stream.runCollect,
+            Effect.provide(AnthropicLanguageModel.model(model)),
+            Effect.provide(layer)
+          )
 
-        const finish = globalThis.Array.from(partsChunk).find((part) => part.type === "finish")
-        assert.isDefined(finish)
-        if (finish?.type !== "finish") {
-          return
-        }
-        assert.strictEqual(finish.usage.outputTokens.total, 41)
-        assert.strictEqual(finish.usage.outputTokens.reasoning, 32)
-      }))
+          const finish = globalThis.Array.from(partsChunk).find((part) => part.type === "finish")
+          assert.isDefined(finish)
+          if (finish?.type !== "finish") {
+            return
+          }
+          assert.strictEqual(finish.usage.outputTokens.total, 41)
+          assert.strictEqual(finish.usage.outputTokens.reasoning, 32)
+        }))
+    }
   })
 })
 
