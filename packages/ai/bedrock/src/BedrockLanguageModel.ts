@@ -226,7 +226,10 @@ export const layer = (
           Effect.sync(() => new sdk.BedrockRuntimeClient({ ...options.client, maxAttempts: 1 })),
           (client) => Effect.sync(() => client.destroy())
         )
-        send = (input, signal) => client.send(new sdk.ConverseStreamCommand(input), { abortSignal: signal })
+        const sendCommand = (client as unknown as {
+          send: (command: InstanceType<typeof sdk.ConverseStreamCommand>, options: { readonly abortSignal: AbortSignal }) => Promise<ConverseStreamCommandOutput>
+        }).send.bind(client)
+        send = (input, signal) => sendCommand(new sdk.ConverseStreamCommand(input), { abortSignal: signal })
       }
       const streamText = (request: LanguageModel.ProviderOptions) =>
         Stream.unwrap(Effect.gen(function*() {
@@ -479,7 +482,8 @@ class BedrockResponse {
         ] as const
       ) {
         if (event[key] !== undefined) {
-          const error: Error = Object.assign(new Error(event[key].message), event[key])
+          const message = "message" in event[key] && typeof event[key].message === "string" ? event[key].message : key
+          const error: Error = Object.assign(new Error(message), event[key])
           error.name = key[0]!.toUpperCase() + key.slice(1)
           return yield* providerError(error)
         }
