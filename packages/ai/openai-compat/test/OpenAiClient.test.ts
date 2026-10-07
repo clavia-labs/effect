@@ -8,7 +8,7 @@ import {
   type HttpClientError,
   type HttpClientRequest,
   HttpClientResponse
-} from "effect/unstable/http"
+} from "effect/http"
 
 describe("OpenAiClient", () => {
   describe("request behavior", () => {

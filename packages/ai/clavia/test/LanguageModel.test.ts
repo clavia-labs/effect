@@ -1,7 +1,7 @@
 import { assert, it } from "@effect/vitest"
 import { make, ResponseFormat } from "@tardie/ai/LanguageModel"
 import { Effect, Schema, Stream } from "effect"
-import { LanguageModel, Tool, Toolkit } from "effect/unstable/ai"
+import { LanguageModel, Tool, Toolkit } from "effect/ai"
 
 const format = { type: "json", objectName: "answer", schema: Schema.Struct({ answer: Schema.String }) } as const
 

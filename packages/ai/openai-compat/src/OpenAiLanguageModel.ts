@@ -12,7 +12,7 @@ import * as ProviderLanguageModel from "@tardie/ai/LanguageModel"
 import * as Context from "effect/Context"
 import * as DateTime from "effect/DateTime"
 import * as Effect from "effect/Effect"
-import * as Encoding from "effect/Encoding"
+import { Base64 } from "effect/encoding"
 import { dual } from "effect/Function"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
@@ -22,18 +22,17 @@ import * as Redactable from "effect/Redactable"
 import * as Schema from "effect/Schema"
 import * as AST from "effect/SchemaAST"
 import * as Stream from "effect/Stream"
-import * as Struct from "effect/Struct"
 import type { Span } from "effect/Tracer"
-import type { DeepMutable } from "effect/Types"
-import * as AiError from "effect/unstable/ai/AiError"
-import * as LanguageModel from "effect/unstable/ai/LanguageModel"
-import * as AiModel from "effect/unstable/ai/Model"
-import { toCodecOpenAI } from "effect/unstable/ai/OpenAiStructuredOutput"
-import type * as Prompt from "effect/unstable/ai/Prompt"
-import type * as Response from "effect/unstable/ai/Response"
-import * as Tool from "effect/unstable/ai/Tool"
-import type * as HttpClientRequest from "effect/unstable/http/HttpClientRequest"
-import type * as HttpClientResponse from "effect/unstable/http/HttpClientResponse"
+import type { DeepMutable, Simplify } from "effect/Types"
+import * as AiError from "effect/ai/AiError"
+import * as LanguageModel from "effect/ai/LanguageModel"
+import * as AiModel from "effect/ai/Model"
+import { toCodecOpenAI } from "effect/ai/OpenAiStructuredOutput"
+import type * as Prompt from "effect/ai/Prompt"
+import type * as Response from "effect/ai/Response"
+import * as Tool from "effect/ai/Tool"
+import type * as HttpClientRequest from "effect/http/HttpClientRequest"
+import type * as HttpClientResponse from "effect/http/HttpClientResponse"
 import * as InternalUtilities from "./internal/utilities.ts"
 import {
   type Annotation,
@@ -65,61 +64,42 @@ type ImageDetail = "auto" | "low" | "high"
 // Configuration
 // =============================================================================
 
-/**
- * ConfigSchema validates compatible provider defaults and preserves extension fields.
- *
- * @category schemas
- * @since 4.0.0
- */
-export const ConfigSchema = Schema.StructWithRest(
-  Schema.Struct({
-    metadata: Schema.optional(Schema.NullOr(Schema.Record(Schema.String, Schema.String))),
-    top_logprobs: Schema.optional(Schema.Number),
-    temperature: Schema.optional(Schema.NullOr(Schema.Number)),
-    top_p: Schema.optional(Schema.NullOr(Schema.Number)),
-    user: Schema.optional(Schema.NullOr(Schema.String)),
-    safety_identifier: Schema.optional(Schema.NullOr(Schema.String)),
-    prompt_cache_key: Schema.optional(Schema.NullOr(Schema.String)),
-    service_tier: Schema.optional(Schema.String),
-    prompt_cache_retention: Schema.optional(Schema.NullOr(Schema.Literals(["in-memory", "24h"]))),
-    previous_response_id: Schema.optional(Schema.NullOr(Schema.String)),
-    model: Schema.optional(Schema.String),
-    reasoning: Schema.optional(Schema.Unknown),
-    background: Schema.optional(Schema.NullOr(Schema.Boolean)),
-    max_output_tokens: Schema.optional(Schema.NullOr(Schema.Number)),
-    max_tool_calls: Schema.optional(Schema.NullOr(Schema.Number)),
-    text: Schema.optional(Schema.Struct({ verbosity: Schema.optional(Schema.Literals(["low", "medium", "high"])) })),
-    truncation: Schema.optional(Schema.NullOr(Schema.Literals(["auto", "disabled"]))),
-    include: Schema.optional(Schema.NullOr(Schema.Array(Schema.Literals([
-      "message.input_image.image_url",
-      "reasoning.encrypted_content",
-      "message.output_text.logprobs"
-    ])))),
-    parallel_tool_calls: Schema.optional(Schema.NullOr(Schema.Boolean)),
-    store: Schema.optional(Schema.NullOr(Schema.Boolean)),
-    instructions: Schema.optional(Schema.NullOr(Schema.String)),
-    conversation: Schema.optional(Schema.NullOr(Schema.String)),
-    modalities: Schema.optional(Schema.Array(Schema.Literals(["text", "audio"]))),
-    seed: Schema.optional(Schema.Number),
-    fileIdPrefixes: Schema.optional(Schema.Array(Schema.String)),
-    strictJsonSchema: Schema.optional(Schema.Boolean)
-  }),
-  [Schema.Record(Schema.String, Schema.Unknown)]
-)
-
-type ConfigOptions = typeof ConfigSchema.Encoded
-type ModelConfig = typeof ModelConfigSchema.Encoded
-
-/**
- * ModelConfigSchema validates defaults supplied alongside a model identifier.
- *
- * @category schemas
- * @since 4.0.0
- */
-export const ModelConfigSchema = Schema.StructWithRest(
-  ConfigSchema.schema.mapFields(Struct.omit(["model"])),
-  ConfigSchema.records
-)
+type ConfigOptions = Simplify<
+  & Partial<
+    Omit<CreateResponse, "input" | "tools" | "tool_choice" | "stream" | "text">
+  >
+  & {
+    /**
+     * File ID prefixes used to identify file IDs in Responses API.
+     * When undefined, all file data is treated as base64 content.
+     *
+     * Examples:
+     * - OpenAI: ['file-'] for IDs like 'file-abc123'
+     * - Azure OpenAI: ['assistant-'] for IDs like 'assistant-abc123'
+     */
+    readonly fileIdPrefixes?: ReadonlyArray<string> | undefined
+    /**
+     * Configuration options for a text response from the model.
+     */
+    readonly text?: {
+      /**
+       * Constrains the verbosity of the model's response. Lower values will
+       * result in more concise responses, while higher values will result in
+       * more verbose responses.
+       *
+       * Defaults to `"medium"`.
+       */
+      readonly verbosity?: "low" | "medium" | "high" | undefined
+    } | undefined
+    /**
+     * Whether to use strict JSON schema validation.
+     *
+     * Defaults to `true`.
+     */
+    readonly strictJsonSchema?: boolean | undefined
+  }
+>
+type ModelConfig = Omit<ConfigOptions, "model"> & { readonly [x: string]: unknown }
 
 /**
  * Context service for OpenAI language model configuration.
@@ -144,7 +124,7 @@ export class Config extends Context.Service<
 // Provider Options / Metadata
 // =============================================================================
 
-declare module "effect/unstable/ai/Prompt" {
+declare module "effect/ai/Prompt" {
   /**
    * OpenAI-compatible options for file prompt parts.
    *
@@ -262,7 +242,7 @@ declare module "effect/unstable/ai/Prompt" {
   }
 }
 
-declare module "effect/unstable/ai/Response" {
+declare module "effect/ai/Response" {
   /**
    * OpenAI-compatible metadata attached to a complete text response part.
    *
@@ -612,13 +592,6 @@ export const make = Effect.fnUntraced(function*({ model, config: providerConfig 
       readonly options: LanguageModel.ProviderOptions
       readonly toolNameMapper: Tool.NameMapper<Tools>
     }): Effect.fn.Return<CreateResponseRequestJson, AiError.AiError> {
-      if (config.n !== undefined && config.n !== 1) {
-        return yield* AiError.make({
-          module: "OpenAiLanguageModel",
-          method: "makeRequest",
-          reason: AiError.InvalidRequestError.make({ description: "LanguageModel accepts one completion; n must be 1" })
-        })
-      }
       const include = new Set<IncludeEnum>()
       const capabilities = getModelCapabilities(config.model!)
       const messages = yield* prepareMessages({
@@ -825,7 +798,7 @@ const prepareMessages = Effect.fnUntraced(
                     const imageUrl = part.data instanceof URL
                       ? part.data.toString()
                       : part.data instanceof Uint8Array
-                      ? `data:${mediaType};base64,${Encoding.encodeBase64(part.data)}`
+                      ? `data:${mediaType};base64,${Base64.encode(part.data)}`
                       : /^(data:|https?:\/\/)/i.test(part.data)
                       ? part.data
                       : `data:${mediaType};base64,${part.data}`
@@ -841,7 +814,7 @@ const prepareMessages = Effect.fnUntraced(
                   }
 
                   if (part.data instanceof Uint8Array) {
-                    const base64 = Encoding.encodeBase64(part.data)
+                    const base64 = Base64.encode(part.data)
                     const fileName = part.fileName ?? `part-${index}.pdf`
                     const fileData = `data:application/pdf;base64,${base64}`
                     content.push({ type: "input_file", filename: fileName, file_data: fileData })
@@ -1298,13 +1271,6 @@ const makeStreamResponse = Effect.fnUntraced(
           })
         }
 
-        if (event.choices.some((choice) => choice.index !== 0)) {
-          return yield* AiError.make({
-            module: "OpenAiLanguageModel",
-            method: "streamText",
-            reason: AiError.InvalidOutputError.make({ description: "Expected completion choice index 0" })
-          })
-        }
         const choice = event.choices[0]
         if (Predicate.isUndefined(choice)) {
           return parts

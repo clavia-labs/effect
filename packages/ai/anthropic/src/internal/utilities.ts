@@ -1,5 +1,5 @@
 import * as Predicate from "effect/Predicate"
-import type * as Response from "effect/unstable/ai/Response"
+import type * as Response from "effect/ai/Response"
 
 const finishReasonMap: Record<string, Response.FinishReason> = {
   end_turn: "stop",

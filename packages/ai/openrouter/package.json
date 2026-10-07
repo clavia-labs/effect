@@ -1,17 +1,17 @@
 {
   "name": "@tardie/ai-openrouter",
-  "version": "4.0.0-rc.113-clavia.3",
+  "version": "4.0.1-clavia.0",
   "type": "module",
   "license": "MIT",
   "description": "An OpenRouter provider integration for Effect AI SDK",
-  "homepage": "https://github.com/clavia-labs/effect",
+  "homepage": "https://effect.website",
   "repository": {
     "type": "git",
-    "url": "https://github.com/clavia-labs/effect.git",
+    "url": "https://github.com/Effect-TS/effect.git",
     "directory": "packages/ai/openrouter"
   },
   "bugs": {
-    "url": "https://github.com/clavia-labs/effect/issues"
+    "url": "https://github.com/Effect-TS/effect/issues"
   },
   "tags": [
     "typescript",
@@ -64,9 +64,6 @@
     "effect": "workspace:^"
   },
   "peerDependencies": {
-    "effect": "4.0.0-rc.115"
-  },
-  "dependencies": {
-    "@tardie/ai": "workspace:*"
+    "effect": "^4.0.1"
   }
 }

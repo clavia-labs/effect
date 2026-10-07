@@ -8,7 +8,7 @@ import {
   type HttpClientError,
   type HttpClientRequest,
   HttpClientResponse
-} from "effect/unstable/http"
+} from "effect/http"
 
 describe("AnthropicClient", () => {
   it.effect("redacts the API key in AI error context", () =>

@@ -1,8 +1,8 @@
 import { assert, describe, it } from "@effect/vitest"
 import { OpenAiClient, OpenAiLanguageModel } from "@tardie/ai-openai-compat"
 import { Effect, Layer, Redacted, Ref, Schema, Stream } from "effect"
-import { type AiError, LanguageModel, Prompt, Tool, Toolkit } from "effect/unstable/ai"
-import { HttpClient, type HttpClientError, type HttpClientRequest, HttpClientResponse } from "effect/unstable/http"
+import { type AiError, LanguageModel, Prompt, Tool, Toolkit } from "effect/ai"
+import { HttpClient, type HttpClientError, type HttpClientRequest, HttpClientResponse } from "effect/http"
 
 describe("OpenAiLanguageModel", () => {
   describe("generateText", () => {
