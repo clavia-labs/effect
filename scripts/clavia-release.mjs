@@ -70,6 +70,6 @@ if (action === "publish") {
       continue
     }
     assert.ok(existing.stderr.includes("E404"), existing.stderr || "npm lookup failed")
-    run("npm", ["publish", target.file, "--access", "public", "--tag", tag, "--provenance"])
+    run("npm", ["publish", target.file, "--access", "public", "--tag", tag, "--provenance=false"])
   }
 }
