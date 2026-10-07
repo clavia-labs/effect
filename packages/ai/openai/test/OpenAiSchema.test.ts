@@ -2,9 +2,9 @@ import { assert, describe, it } from "@effect/vitest"
 import { OpenAiClient, OpenAiLanguageModel } from "@tardie/ai-openai"
 import * as OpenAiSchema from "@tardie/ai-openai/OpenAiSchema"
 import { Effect, Layer, Schema, Stream } from "effect"
-import { LanguageModel } from "effect/unstable/ai"
-import * as Sse from "effect/unstable/encoding/Sse"
-import { HttpClientRequest, HttpClientResponse } from "effect/unstable/http"
+import { LanguageModel } from "effect/ai"
+import * as Sse from "effect/encoding/Sse"
+import { HttpClientRequest, HttpClientResponse } from "effect/http"
 
 const makeResponse = (overrides: Record<string, unknown> = {}) => ({
   id: "resp_123",

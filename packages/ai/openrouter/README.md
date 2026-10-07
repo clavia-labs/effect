@@ -1,11 +1,11 @@
-# @effect/ai-openrouter
+# @tardie/ai-openrouter
 
 An [OpenRouter](https://openrouter.ai) provider for the Effect AI modules. Includes a typed OpenRouter API client and language model layers.
 
 ## Installation
 
 ```sh
-npm install effect@rc @effect/ai-openrouter@rc
+npm install effect@4.0.1 @tardie/ai-openrouter@4.0.1-clavia.1
 ```
 
 ## Documentation

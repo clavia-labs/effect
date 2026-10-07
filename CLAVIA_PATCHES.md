@@ -1,10 +1,34 @@
 # Clavia provider patches
 
-Base: upstream `49e4b37b831a573567e0b67d3ec4593403dc2e72` (after `effect@4.0.0-rc.115`). Publishing branch: `clavia/ai-providers`.
+Base: `effect@4.0.0-rc.113`. Publishing branch: `clavia/ai-providers`.
 
-The base includes OpenAI hosted-search failure preservation (#8157) and OpenRouter disjoint token usage accounting (#8170). The declaration fix (#8162) is upstream and no longer needs a fork commit.
+This fork carries provider changes for Tardigrade. The Effect runtime includes upstream declaration fix #8162. The provider packages use the `@clavia` scope. `@tardie/ai` supplies their shared factory wrapper.
 
-This fork carries provider changes for Tardigrade. Consumers use upstream `effect@4.0.0-rc.115`, which includes declaration fix #8162. The provider packages use the `@tardie` scope. `@tardie/ai` supplies their shared factory wrapper.
+## Stable 4.0.1 migration ledger
+
+This ledger is the provider source of truth. Tardigrade keeps integration coverage and consumes the published `@tardie` packages.
+
+| Patch | Area | Status against Effect 4.0.1 | Fork action | Evidence |
+| --- | --- | --- | --- | --- |
+| Deferred tool validation | Shared wrapper | Not upstreamed | Keep the wrapper validation path and deferred `ToolCallValidationError` behavior | `packages/ai/clavia/test/ProviderStreams.test.ts` |
+| Scoped response formats | Shared wrapper | Fork-owned | Keep `ResponseFormat` and text versus object precedence | `packages/ai/clavia/test/LanguageModel.test.ts` |
+| Output-limit completion | All providers | Needs verification | Keep provider completion and usage fixtures until stable behavior is confirmed | `packages/ai/clavia/test/ProviderStreams.test.ts` |
+| Raw usage metadata | OpenAI, compatible | Not upstreamed | Keep raw finish metadata if the stable provider drops fields required by Tardigrade | Provider stream fixtures |
+| Completion evidence | Compatible | Upstreamed in substance | Retain bare-sentinel and missing-finish regressions | `packages/ai/openai-compat/test/OpenAiLanguageModel.test.ts` |
+| Reasoning replay | Compatible, OpenRouter | Upstreamed in substance | Retain replay fixtures while the package boundary is replaced | `packages/ai/clavia/test/ProviderStreams.test.ts` |
+| Shared approval metadata | Compatible | Upstreamed | Use stable declarations and remove duplicate fork declarations where equivalent | Provider typecheck |
+| Nullable stream fields | Compatible | Upstreamed | Keep null and omitted field fixtures | Compatible provider fixtures |
+| OpenRouter sentinel | OpenRouter | Upstreamed | Keep combined and segmented sentinel coverage | OpenRouter client fixtures |
+| OpenAI Responses sentinel | OpenAI | Not upstreamed | Keep the client parser patch for terminal response plus `[DONE]` chunks | `packages/ai/openai/test/OpenAiClient.test.ts` |
+| OpenAI request boundaries | OpenAI | Upstreamed in substance | Retain explicit include and encrypted reasoning regressions | OpenAI provider tests |
+| Compatible request boundaries | Compatible | Needs verification | Retain choice count and index regressions | Compatible provider tests |
+| Anthropic usage accumulation | Anthropic | Upstreamed in substance | Verify null, omitted, and zero counters | Anthropic provider tests |
+| Anthropic thinking display | Anthropic | Not upstreamed | Keep configuration and request mapping until stable exposes the contract | Anthropic config tests |
+| Anthropic reasoning usage | Anthropic | Not upstreamed | Keep `thinking_tokens` mapping and declarations | Anthropic usage tests |
+| Provider configuration schemas | All providers | Not upstreamed | Keep `ConfigSchema` and `ModelConfigSchema` coverage | Provider config tests |
+| Bedrock provider and error policy | Bedrock | Fork-owned | Port and publish the provider from the fork | Bedrock provider tests |
+
+The provider source and contract tests remain on this fork. Tardigrade retains integration tests for replay, retries, continuations, tool dispatch, layer assembly, package isolation, and packed consumers.
 
 ## Ported changes
 
@@ -22,8 +46,6 @@ This fork carries provider changes for Tardigrade. Consumers use upstream `effec
 `@tardie/ai/LanguageModel` exports `ResponseFormat` and `make`. The factory calls upstream `LanguageModel.make` with wrapped provider hooks. A scoped `ResponseFormat` supplies the text-generation format. Object generation retains its explicit schema and native decoding.
 
 All three provider factories use this wrapper. Effect service identity, prompt handling, and validation remain upstream. The wrapper does not replace or patch the Effect module. Its streamed deferred-call path checks encoded schemas before native response decoding. An internal context reference keeps that path separate from managed execution.
-
-Streaming tool-call deltas accept null roles and null continuation IDs. The parser retains the first call ID and assembles argument fragments by tool index. The compatible-provider suite covers the Kimi stream shape.
 
 ## Validation
 
@@ -77,70 +99,10 @@ Validation passes: 230 provider tests, 28 packed consumer tests, workspace typec
 
 The initial release contains `@tardie/effect@4.0.0-rc.113`, `@tardie/ai@0.0.1`, and three providers at `4.0.0-rc.113-clavia.0`. Registry archive integrity matches the checked packages. Each package trusts `clavia-labs/effect`, workflow `clavia-publish.yml`, environment `npm`, for GitHub publication. No npm token secret is required.
 
-## Upstream runtime compatibility
-
-The provider compatibility release uses `@tardie/ai@0.0.2` and provider suffix `rc.113-clavia.1`, with exact upstream Effect rc.115 peers. Provider source remains based on rc.113. The release script publishes four provider packages and checks their archives against the published upstream runtime. It no longer packages or publishes `@tardie/effect`.
-
-The packed consumer imports every public runtime entrypoint with `skipLibCheck: false`, runs the shared provider contracts, and checks that npm resolves one upstream runtime.
-
 ## Responses stream sentinel
 
-OpenRouter can append `[DONE]` after its terminal response event. The OpenAI client handles the sentinel before schema decoding, including when both arrive in one network chunk. Response events retain schema validation. A bare sentinel produces no completion event, and malformed JSON before completion still fails.
+OpenRouter appends `[DONE]` after its terminal response event. JSON decoding previously failed when both arrived in the same network chunk. The OpenAI client now handles the sentinel before schema decoding. Response events retain schema validation. A bare sentinel produces no completion event.
 
-`packages/ai/openai/test/OpenAiClient.test.ts` checks completed, incomplete, and failed terminal events with combined and separate chunks. Tardigrade also checks the installed package with a combined-chunk fixture. The fix ships in `@tardie/ai-openai@4.0.0-rc.113-clavia.2`.
+`packages/ai/openai/test/OpenAiClient.test.ts` covers all three terminal events with combined and separate chunks, a bare sentinel, and malformed JSON. Client, language model, and shared stream suites pass 135 tests. Fork lint, type checks, and the OpenAI package build pass.
 
-## Bedrock provider
-
-`packages/ai/bedrock` supplies `@tardie/ai-bedrock`. It translates AWS Converse streams into Effect prompts, response parts, and AiError. AWS owns event-stream decoding; the provider owns Converse mapping, signed and redacted reasoning, token usage, and cancellation. It uses the shared deferred-validation wrapper.
-
-`test/BedrockLanguageModel.test.ts` covers prompt/tool changes, native reasoning replay, isolated tool validation, fragmented and corrupted AWS frames, cancellation, error classification, and usage metadata. Tardigrade retains its binding tests for rejected-call repair, incomplete streams, truncation, and durable evidence.
-
-Cloudflare gateway authentication and Tardigrade request policies remain outside this package. The initial scope is streamText only; generateText fails explicitly. This is a fork provider, not an upstream Effect package.
-
-## Provider boundary regressions
-
-OpenAI preserves explicit `include` values before adding inferred fields. Deployment aliases can request encrypted reasoning regardless of model-name detection or `store`. The compatible provider rejects `n` other than 1 before transport and rejects unexpected alternative choice indexes while streaming. Effect LanguageModel exposes a single response.
-
-Anthropic derives its streaming delta schema from the generated schema and permits omitted input and cache counters. The response accumulator retains earlier counters for null or absent updates and accepts an explicit zero. The usage override retains generated field validators. The wire contract is shown in the [Anthropic streaming examples](https://platform.claude.com/docs/en/build-with-claude/streaming). The model configuration uses the generated effort union, including `max` and `xhigh`. The pinned codegen input patches both effort enums. Only their declarations were imported from regenerated output; unrelated schema generation changes are excluded.
-
-`packages/ai/clavia/test/ProviderStreams.test.ts` proves explicit include retention, pre-request choice rejection, interleaved-choice rejection, and partial usage accumulation. The full provider suite passes 271 tests. These changes are prepared for OpenAI `rc.113-clavia.3`, Anthropic `rc.113-clavia.2`, and compatible `rc.113-clavia.2`.
-
-## OpenRouter native replay
-
-`@tardie/ai-openrouter@4.0.0-rc.113-clavia.1` supplies the native OpenRouter LanguageModel. The shared constructor applies scoped response formats and deferred tool validation. The stream decoder retains routed-provider identity, including when it appears before the usage chunk. Tool arguments are parsed after completion; malformed JSON produces a typed error after response evidence, and token limits retain usage without dispatching partial calls.
-
-`packages/ai/clavia/test/ProviderStreams.test.ts` extends the shared contracts to OpenRouter, including reasoning replay after JSON restoration. Tardigrade tests persistence of native reasoning details, routing metadata, and cost evidence. Provider-native reasoning details are kept in the encoded Effect Prompt, as described in [OpenRouter reasoning replay](https://openrouter.ai/docs/guides/best-practices/reasoning-tokens).
-
-## Provider configuration schemas (unreleased)
-
-Each provider exports `ConfigSchema` and `ModelConfigSchema` from its language-model module. `ConfigSchema.Encoded` supplies the configuration service type. `ModelConfigSchema` follows the options accepted alongside a model identifier. OpenAI, Anthropic, and OpenRouter derive fields from their generated request schemas. Compatible providers retain extension fields. Bedrock validates Converse settings without importing the AWS client at runtime.
-
-`packages/ai/clavia/test/ConfigSchema.test.ts` checks JSON round trips, optional settings, invalid values, and unknown fields. The adjacent `ConfigSchema.types.ts` and `packages/ai/bedrock/test/ConfigSchema.types.ts` check compatibility with the previous provider contracts, including the AWS SDK input type. Tardigrade has not yet replaced its configuration allowlists with these schemas.
-
-## Bedrock tool history without active tools
-
-Native history is the default. Requests with no active tools, including `toolChoice: "none"`, reject native tool history before transport. Set `toolHistory: "text"` to convert historical calls and results into escaped `<tool_call>` and `<tool_result>` text blocks when no tools are enabled. The conversion preserves IDs, names, arguments, results, and failure status. It omits historical reasoning from the rewritten request and adds a system instruction treating the tagged history as data. Active-tool requests preserve native history and reasoning. The input Prompt remains unchanged, and the adapter option is not sent to AWS.
-
-`packages/ai/bedrock/test/BedrockLanguageModel.test.ts` covers both policies with enabled, removed, and disabled tools, including failed results, delimiter escaping, and signed and redacted reasoning.
-
-## Bedrock HTTP error evidence
-
-The Bedrock adapter retains available HTTP status and allowlisted diagnostic response headers in `reason.metadata.bedrock.response`, plus the SDK request ID when supplied. A non-JSON error response reports its HTTP status with the decoding failure as secondary metadata. Recognized plaintext `error code: NNNN` responses retain the upstream code without storing arbitrary response content. Error classification uses AWS exception names and available HTTP status.
-
-The AWS SDK may leave buffered bytes readable after decoding fails, but a streamed body can already be consumed. The adapter reads retained bytes or strings, or recognizes the code in the SDK's JSON-error excerpt. It does not reread a consumed stream, invent request details, or retain cookies and authorization headers. An unavailable code stays absent.
-
-`packages/ai/bedrock/test/BedrockLanguageModel.test.ts` exercises the real SDK with synthetic HTTP 503 responses using buffered and streamed bodies. It also checks metadata retention across error classes, Effect schema serialization, and exclusion of arbitrary response content.
-
-## Bedrock error classification
-
-Local request validation emits `InvalidUserInputError`. Missing or malformed provider responses emit `InvalidOutputError`. AWS request rejections retain `InvalidRequestError`, while authentication, quota, throttling, and service failures use their Effect error reasons. The original exception name is retained as `reason.metadata.bedrock.errorType`, following the provider error metadata convention. HTTP status remains usable when SDK error-body decoding fails. Consumers can use native `isRetryable` after separating local input failures from provider failures.
-
-`packages/ai/bedrock/test/BedrockLanguageModel.test.ts` checks local rejection before dispatch, malformed response classification, SDK and stream exception evidence, HTTP 503 retryability, and serialized error round trips.
-
-## Anthropic thinking display and reasoning usage
-
-Thinking configuration accepts `display` (`"summarized"` or `"omitted"`) for adaptive and enabled thinking. Without it, callers cannot request a visible thinking summary from adaptive thinking. The configuration schema previously rejected the field.
-
-Responses report `usage.output_tokens_details.thinking_tokens`. The adapter maps it to `outputTokens.reasoning` for generated and streamed responses. A later `message_delta` without the detail keeps the earlier count. The fields are added to the generated schemas and recorded as a spec patch in `codegen.yml`.
-
-`packages/ai/anthropic/test/AnthropicLanguageModel.test.ts` checks configuration decoding, the request body for both thinking types, and reasoning usage with and without the detail.
+The Tardigrade live test passed with `openai/gpt-5.6-sol` through OpenRouter using the rebuilt client through a temporary Bun preload. It checked durable reasoning replay through a tool call and completed-turn recovery. Seven inference fixture tests also passed, including rejection of a bare sentinel. Installed dependencies remain unchanged. Publication is pending.

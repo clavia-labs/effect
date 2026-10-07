@@ -11,18 +11,18 @@ import type {
   ConverseStreamOutput,
   Message
 } from "@aws-sdk/client-bedrock-runtime"
-import * as ProviderLanguageModel from "@tardie/ai"
+import * as ProviderLanguageModel from "@tardie/ai/LanguageModel"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
-import * as Encoding from "effect/Encoding"
+import { Base64 } from "effect/encoding"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
 import * as Stream from "effect/Stream"
-import type { Prompt, Response } from "effect/unstable/ai"
-import * as AiError from "effect/unstable/ai/AiError"
-import * as LanguageModel from "effect/unstable/ai/LanguageModel"
-import * as Tool from "effect/unstable/ai/Tool"
+import type { Prompt, Response } from "effect/ai"
+import * as AiError from "effect/ai/AiError"
+import * as LanguageModel from "effect/ai/LanguageModel"
+import * as Tool from "effect/ai/Tool"
 
 const document: Schema.Codec<NativeJson> = Schema.suspend(() =>
   Schema.Union([
@@ -114,12 +114,12 @@ export type ClientOptions = BedrockRuntimeClientConfig | { readonly send: Send }
 export class Config extends Context.Service<Config, ModelConfig>()("@tardie/ai-bedrock/Config") {}
 
 type ReasoningOptions = { readonly signature?: string; readonly redactedContent?: string }
-declare module "effect/unstable/ai/Prompt" {
+declare module "effect/ai/Prompt" {
   interface ReasoningPartOptions {
     readonly bedrock?: ReasoningOptions
   }
 }
-declare module "effect/unstable/ai/Response" {
+declare module "effect/ai/Response" {
   interface ReasoningEndPartMetadata {
     readonly bedrock?: ReasoningOptions
   }
@@ -226,7 +226,10 @@ export const layer = (
           Effect.sync(() => new sdk.BedrockRuntimeClient({ ...options.client, maxAttempts: 1 })),
           (client) => Effect.sync(() => client.destroy())
         )
-        send = (input, signal) => client.send(new sdk.ConverseStreamCommand(input), { abortSignal: signal })
+        const sendCommand = (client as unknown as {
+          send: (command: InstanceType<typeof sdk.ConverseStreamCommand>, options: { readonly abortSignal: AbortSignal }) => Promise<ConverseStreamCommandOutput>
+        }).send.bind(client)
+        send = (input, signal) => sendCommand(new sdk.ConverseStreamCommand(input), { abortSignal: signal })
       }
       const streamText = (request: LanguageModel.ProviderOptions) =>
         Stream.unwrap(Effect.gen(function*() {
@@ -479,7 +482,8 @@ class BedrockResponse {
         ] as const
       ) {
         if (event[key] !== undefined) {
-          const error: Error = Object.assign(new Error(event[key].message), event[key])
+          const message = "message" in event[key] && typeof event[key].message === "string" ? event[key].message : key
+          const error: Error = Object.assign(new Error(message), event[key])
           error.name = key[0]!.toUpperCase() + key.slice(1)
           return yield* providerError(error)
         }
@@ -552,7 +556,7 @@ class BedrockResponse {
                 ...(block.signature === "" ? {} : { signature: block.signature }),
                 ...(block.redacted.length === 0
                   ? {}
-                  : { redactedContent: Encoding.encodeBase64(Uint8Array.from(block.redacted)) })
+                  : { redactedContent: Base64.encode(Uint8Array.from(block.redacted)) })
               }
             }
           })}

@@ -1,6 +1,6 @@
 {
   "name": "@tardie/ai-openai",
-  "version": "4.0.0-rc.113-clavia.6",
+  "version": "4.0.1-clavia.0",
   "type": "module",
   "license": "MIT",
   "description": "An OpenAI provider integration for Effect AI SDK",
@@ -64,7 +64,7 @@
     "effect": "workspace:^"
   },
   "peerDependencies": {
-    "effect": "4.0.0-rc.115"
+    "effect": "^4.0.1"
   },
   "dependencies": {
     "@tardie/ai": "workspace:*"

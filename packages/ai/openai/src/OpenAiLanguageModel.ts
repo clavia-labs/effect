@@ -12,7 +12,7 @@ import * as ProviderLanguageModel from "@tardie/ai/LanguageModel"
 import * as Context from "effect/Context"
 import * as DateTime from "effect/DateTime"
 import * as Effect from "effect/Effect"
-import * as Encoding from "effect/Encoding"
+import { Base64 } from "effect/encoding"
 import { dual } from "effect/Function"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
@@ -21,23 +21,22 @@ import * as Redactable from "effect/Redactable"
 import * as Schema from "effect/Schema"
 import * as AST from "effect/SchemaAST"
 import * as Stream from "effect/Stream"
-import * as Struct from "effect/Struct"
 import type { Span } from "effect/Tracer"
-import type { DeepMutable, Mutable } from "effect/Types"
-import * as AiError from "effect/unstable/ai/AiError"
-import * as IdGenerator from "effect/unstable/ai/IdGenerator"
-import * as LanguageModel from "effect/unstable/ai/LanguageModel"
-import * as AiModel from "effect/unstable/ai/Model"
-import { toCodecOpenAI } from "effect/unstable/ai/OpenAiStructuredOutput"
-import type * as Prompt from "effect/unstable/ai/Prompt"
-import type * as Response from "effect/unstable/ai/Response"
-import * as Tool from "effect/unstable/ai/Tool"
-import type * as HttpClientRequest from "effect/unstable/http/HttpClientRequest"
-import type * as HttpClientResponse from "effect/unstable/http/HttpClientResponse"
+import type { DeepMutable, Mutable, Simplify } from "effect/Types"
+import * as AiError from "effect/ai/AiError"
+import * as IdGenerator from "effect/ai/IdGenerator"
+import * as LanguageModel from "effect/ai/LanguageModel"
+import * as AiModel from "effect/ai/Model"
+import { toCodecOpenAI } from "effect/ai/OpenAiStructuredOutput"
+import type * as Prompt from "effect/ai/Prompt"
+import type * as Response from "effect/ai/Response"
+import * as Tool from "effect/ai/Tool"
+import type * as HttpClientRequest from "effect/http/HttpClientRequest"
+import type * as HttpClientResponse from "effect/http/HttpClientResponse"
 import * as Generated from "./Generated.ts"
 import * as InternalUtilities from "./internal/utilities.ts"
 import { OpenAiClient } from "./OpenAiClient.ts"
-import * as OpenAiSchema from "./OpenAiSchema.ts"
+import type * as OpenAiSchema from "./OpenAiSchema.ts"
 import { addGenAIAnnotations } from "./OpenAiTelemetry.ts"
 import type * as OpenAiTool from "./OpenAiTool.ts"
 
@@ -81,39 +80,53 @@ type PromptCacheBreakpoint = { readonly mode: "explicit" }
  * @category services
  * @since 4.0.0
  */
-export class Config
-  extends Context.Service<Config, typeof ConfigSchema.Encoded>()("@effect/ai-openai/OpenAiLanguageModel/Config")
-{}
-
-/**
- * ConfigSchema validates provider configuration (../../clavia/test/ConfigSchema.test.ts).
- *
- * @category schemas
- * @since 4.0.0
- */
-export const ConfigSchema = Schema.Struct({
-  ...Struct.map(
-    Struct.omit(OpenAiSchema.CreateResponse.fields, ["input", "tools", "tool_choice", "stream", "text"]),
-    Schema.optionalKey
-  ),
-  fileIdPrefixes: Schema.optional(Schema.Array(Schema.String)),
-  text: Schema.optional(Schema.Struct({ verbosity: Schema.optional(Schema.Literals(["low", "medium", "high"])) })),
-  strictJsonSchema: Schema.optional(Schema.Boolean)
-})
-
-/**
- * ModelConfigSchema validates configuration supplied alongside a model identifier.
- *
- * @category schemas
- * @since 4.0.0
- */
-export const ModelConfigSchema = ConfigSchema.mapFields(Struct.omit(["model"]))
+export class Config extends Context.Service<
+  Config,
+  Simplify<
+    & Partial<
+      Omit<
+        typeof OpenAiSchema.CreateResponse.Encoded,
+        "input" | "tools" | "tool_choice" | "stream" | "text"
+      >
+    >
+    & {
+      /**
+       * File ID prefixes used to identify file IDs in Responses API.
+       * When undefined, all file data is treated as base64 content.
+       *
+       * Examples:
+       * - OpenAI: ['file-'] for IDs like 'file-abc123'
+       * - Azure OpenAI: ['assistant-'] for IDs like 'assistant-abc123'
+       */
+      readonly fileIdPrefixes?: ReadonlyArray<string> | undefined
+      /**
+       * Configuration options for a text response from the model.
+       */
+      readonly text?: {
+        /**
+         * Constrains the verbosity of the model's response. Lower values will
+         * result in more concise responses, while higher values will result in
+         * more verbose responses.
+         *
+         * Defaults to `"medium"`.
+         */
+        readonly verbosity?: "low" | "medium" | "high" | undefined
+      } | undefined
+      /**
+       * Whether to use strict JSON schema validation.
+       *
+       * Defaults to `true`.
+       */
+      readonly strictJsonSchema?: boolean | undefined
+    }
+  >
+>()("@effect/ai-openai/OpenAiLanguageModel/Config") {}
 
 // =============================================================================
 // Provider Options / Metadata
 // =============================================================================
 
-declare module "effect/unstable/ai/Prompt" {
+declare module "effect/ai/Prompt" {
   /**
    * OpenAI-specific options for system messages.
    *
@@ -263,7 +276,7 @@ declare module "effect/unstable/ai/Prompt" {
   }
 }
 
-declare module "effect/unstable/ai/Response" {
+declare module "effect/ai/Response" {
   /**
    * OpenAI metadata attached to a complete text response part.
    *
@@ -616,7 +629,7 @@ export const make = Effect.fnUntraced(function*({ model, config: providerConfig 
       readonly options: LanguageModel.ProviderOptions
       readonly toolNameMapper: Tool.NameMapper<Tools>
     }): Effect.fn.Return<typeof OpenAiSchema.CreateResponse.Encoded, AiError.AiError> {
-      const include = new Set<typeof OpenAiSchema.IncludeEnum.Encoded>(config.include ?? [])
+      const include = new Set<typeof OpenAiSchema.IncludeEnum.Encoded>()
       const capabilities = getModelCapabilities(config.model as string)
       const messages = yield* prepareMessages({
         config,
@@ -872,7 +885,7 @@ const prepareMessages = Effect.fnUntraced(
                     const imageUrl = part.data instanceof URL
                       ? part.data.toString()
                       : part.data instanceof Uint8Array
-                      ? `data:${mediaType};base64,${Encoding.encodeBase64(part.data)}`
+                      ? `data:${mediaType};base64,${Base64.encode(part.data)}`
                       : /^(data:|https?:\/\/)/i.test(part.data)
                       ? part.data
                       : `data:${mediaType};base64,${part.data}`
@@ -888,7 +901,7 @@ const prepareMessages = Effect.fnUntraced(
                   }
 
                   if (part.data instanceof Uint8Array) {
-                    const base64 = Encoding.encodeBase64(part.data)
+                    const base64 = Base64.encode(part.data)
                     const fileName = part.fileName ?? `part-${index}.pdf`
                     const fileData = `data:application/pdf;base64,${base64}`
                     content.push({ type: "input_file", filename: fileName, file_data: fileData })
@@ -1327,20 +1340,19 @@ const makeResponse = Effect.fnUntraced(
 
         case "code_interpreter_call": {
           const toolName = toolNameMapper.getCustomName("code_interpreter")
-          const status = part.status ?? "completed"
           parts.push({
             type: "tool-call",
             id: part.id,
             name: toolName,
-            params: { code: part.code ?? null, container_id: part.container_id },
+            params: { code: part.code, container_id: part.container_id },
             providerExecuted: true
           })
           parts.push({
             type: "tool-result",
             id: part.id,
             name: toolName,
-            isFailure: status !== "completed",
-            result: { status, outputs: part.outputs ?? null },
+            isFailure: false,
+            result: { outputs: part.outputs },
             providerExecuted: true
           })
           break
@@ -1359,7 +1371,7 @@ const makeResponse = Effect.fnUntraced(
             type: "tool-result",
             id: part.id,
             name: toolName,
-            isFailure: part.status !== "completed",
+            isFailure: false,
             result: {
               status: part.status,
               queries: part.queries,
@@ -1402,7 +1414,6 @@ const makeResponse = Effect.fnUntraced(
 
         case "image_generation_call": {
           const toolName = toolNameMapper.getCustomName("image_generation")
-          const status = part.status ?? "completed"
           parts.push({
             type: "tool-call",
             id: part.id,
@@ -1414,10 +1425,8 @@ const makeResponse = Effect.fnUntraced(
             type: "tool-result",
             id: part.id,
             name: toolName,
-            isFailure: status !== "completed",
-            result: status === "completed"
-              ? { result: part.result }
-              : { status, result: part.result }
+            isFailure: false,
+            result: { result: part.result }
           })
           break
         }
@@ -1457,7 +1466,7 @@ const makeResponse = Effect.fnUntraced(
             type: "tool-result",
             id: toolId,
             name: toolName,
-            isFailure: Predicate.isNotNullish(part.error),
+            isFailure: false,
             providerExecuted: true,
             result: {
               type: "mcp_call",
@@ -1655,7 +1664,7 @@ const makeResponse = Effect.fnUntraced(
             type: "tool-result",
             id: part.id,
             name: toolName,
-            isFailure: part.status !== "completed",
+            isFailure: false,
             result: { action: part.action, status: part.status },
             providerExecuted: true
           })
@@ -1751,38 +1760,8 @@ const makeStreamResponse = Effect.fnUntraced(
       }
       readonly codeInterpreter?: {
         readonly containerId: string
-        hasCode: boolean
-        streamedCode: string
       }
     }> = {}
-
-    const finishCodeInterpreterCall = (
-      outputIndex: number,
-      code: string | null,
-      parts: Array<Response.StreamPartEncoded>
-    ) => {
-      const toolCall = activeToolCalls[outputIndex]
-      if (Predicate.isUndefined(toolCall?.codeInterpreter)) {
-        return
-      }
-      parts.push({
-        type: "tool-params-delta",
-        id: toolCall.id,
-        delta: toolCall.codeInterpreter.hasCode ? "\"}" : `${JSON.stringify(code)}}`
-      })
-      parts.push({ type: "tool-params-end", id: toolCall.id })
-      parts.push({
-        type: "tool-call",
-        id: toolCall.id,
-        name: toolCall.name,
-        params: {
-          code: toolCall.codeInterpreter.hasCode ? toolCall.codeInterpreter.streamedCode : code,
-          container_id: toolCall.codeInterpreter.containerId
-        },
-        providerExecuted: true
-      })
-      delete activeToolCalls[outputIndex]
-    }
 
     const webSearchTool = options.tools.find((tool) =>
       Tool.isProviderDefined(tool) &&
@@ -1896,7 +1875,7 @@ const makeStreamResponse = Effect.fnUntraced(
                 activeToolCalls[event.output_index] = {
                   id: event.item.id,
                   name: toolName,
-                  codeInterpreter: { containerId: event.item.container_id, hasCode: false, streamedCode: "" }
+                  codeInterpreter: { containerId: event.item.container_id }
                 }
                 parts.push({
                   type: "tool-params-start",
@@ -1907,7 +1886,7 @@ const makeStreamResponse = Effect.fnUntraced(
                 parts.push({
                   type: "tool-params-delta",
                   id: event.item.id,
-                  delta: `{"container_id":${JSON.stringify(event.item.container_id)},"code":`
+                  delta: `{"containerId":"${event.item.container_id}","code":"`
                 })
                 break
               }
@@ -2090,15 +2069,14 @@ const makeStreamResponse = Effect.fnUntraced(
               }
 
               case "code_interpreter_call": {
-                finishCodeInterpreterCall(event.output_index, event.item.code ?? null, parts)
+                delete activeToolCalls[event.output_index]
                 const toolName = toolNameMapper.getCustomName("code_interpreter")
-                const status = event.item.status ?? "completed"
                 parts.push({
                   type: "tool-result",
                   id: event.item.id,
                   name: toolName,
-                  isFailure: status !== "completed",
-                  result: { status, outputs: event.item.outputs ?? null },
+                  isFailure: false,
+                  result: { outputs: event.item.outputs },
                   providerExecuted: true
                 })
                 break
@@ -2131,16 +2109,15 @@ const makeStreamResponse = Effect.fnUntraced(
               case "file_search_call": {
                 delete activeToolCalls[event.output_index]
                 const toolName = toolNameMapper.getCustomName("file_search")
+                const results = Predicate.isNotNullish(event.item.results)
+                  ? { results: event.item.results }
+                  : undefined
                 parts.push({
                   type: "tool-result",
                   id: event.item.id,
                   name: toolName,
-                  isFailure: event.item.status !== "completed",
-                  result: {
-                    status: event.item.status,
-                    queries: event.item.queries,
-                    results: event.item.results ?? null
-                  },
+                  isFailure: false,
+                  result: { ...results, status: event.item.status, queries: event.item.queries },
                   providerExecuted: true
                 })
                 break
@@ -2198,15 +2175,12 @@ const makeStreamResponse = Effect.fnUntraced(
 
               case "image_generation_call": {
                 const toolName = toolNameMapper.getCustomName("image_generation")
-                const status = event.item.status ?? "completed"
                 parts.push({
                   type: "tool-result",
                   id: event.item.id,
                   name: toolName,
-                  isFailure: status !== "completed",
-                  result: status === "completed"
-                    ? { result: event.item.result }
-                    : { status, result: event.item.result },
+                  isFailure: false,
+                  result: { result: event.item.result },
                   providerExecuted: true
                 })
                 break
@@ -2251,7 +2225,7 @@ const makeStreamResponse = Effect.fnUntraced(
                   type: "tool-result",
                   id: toolId,
                   name: toolName,
-                  isFailure: Predicate.isNotNullish(event.item.error),
+                  isFailure: false,
                   providerExecuted: true,
                   result: {
                     type: "mcp_call",
@@ -2359,7 +2333,7 @@ const makeStreamResponse = Effect.fnUntraced(
                   type: "tool-result",
                   id: event.item.id,
                   name: toolName,
-                  isFailure: event.item.status !== "completed",
+                  isFailure: false,
                   result: { action: event.item.action, status: event.item.status },
                   providerExecuted: true
                 })
@@ -2549,21 +2523,37 @@ const makeStreamResponse = Effect.fnUntraced(
 
           case "response.code_interpreter_call_code.delta": {
             const toolCall = activeToolCalls[event.output_index]
-            if (Predicate.isNotUndefined(toolCall?.codeInterpreter)) {
+            if (Predicate.isNotUndefined(toolCall)) {
               parts.push({
                 type: "tool-params-delta",
                 id: toolCall.id,
-                delta: (toolCall.codeInterpreter.hasCode ? "" : "\"") +
-                  InternalUtilities.escapeJSONDelta(event.delta)
+                delta: InternalUtilities.escapeJSONDelta(event.delta)
               })
-              toolCall.codeInterpreter.hasCode = true
-              toolCall.codeInterpreter.streamedCode += event.delta
             }
             break
           }
 
           case "response.code_interpreter_call_code.done": {
-            finishCodeInterpreterCall(event.output_index, event.code, parts)
+            const toolCall = activeToolCalls[event.output_index]
+            if (Predicate.isNotUndefined(toolCall) && Predicate.isNotUndefined(toolCall.codeInterpreter)) {
+              const toolName = toolNameMapper.getCustomName("code_interpreter")
+              parts.push({
+                type: "tool-params-delta",
+                id: toolCall.id,
+                delta: "\"}"
+              })
+              parts.push({ type: "tool-params-end", id: toolCall.id })
+              parts.push({
+                type: "tool-call",
+                id: toolCall.id,
+                name: toolName,
+                params: {
+                  code: event.code,
+                  container_id: toolCall.codeInterpreter.containerId
+                },
+                providerExecuted: true
+              })
+            }
             break
           }
 

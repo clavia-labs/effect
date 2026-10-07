@@ -1,8 +1,8 @@
-import { assert, describe, it } from "@effect/vitest"
 import { OpenRouterClient } from "@tardie/ai-openrouter"
 import * as Errors from "@tardie/ai-openrouter/internal/errors"
+import { assert, describe, it } from "@effect/vitest"
 import { Context, Effect, Layer, Redacted, type Schema } from "effect"
-import { HttpClient, type HttpClientError, type HttpClientRequest, HttpClientResponse } from "effect/unstable/http"
+import { HttpClient, type HttpClientError, type HttpClientRequest, HttpClientResponse } from "effect/http"
 
 describe("OpenRouterClient", () => {
   it.effect("redacts the API key in AI error context", () =>

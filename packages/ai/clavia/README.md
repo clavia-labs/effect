@@ -7,7 +7,7 @@ This package supplies a shared factory for Clavia provider packages. It uses the
 ```ts
 import { ResponseFormat } from "@tardie/ai/LanguageModel"
 import { Schema, Stream } from "effect"
-import { LanguageModel } from "effect/unstable/ai"
+import { LanguageModel } from "effect/ai"
 
 const response = LanguageModel.streamText({ prompt: "Return an answer." }).pipe(
   Stream.provideService(ResponseFormat, {

@@ -9,36 +9,34 @@
  * @since 4.0.0
  */
 /** @effect-diagnostics preferSchemaOverJson:skip-file */
-import * as ProviderLanguageModel from "@tardie/ai/LanguageModel"
 import * as Arr from "effect/Array"
 import * as Context from "effect/Context"
 import * as DateTime from "effect/DateTime"
 import * as Effect from "effect/Effect"
-import * as Encoding from "effect/Encoding"
+import { Base64 } from "effect/encoding"
 import { dual } from "effect/Function"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as Redactable from "effect/Redactable"
-import * as Schema from "effect/Schema"
+import type * as Schema from "effect/Schema"
 import * as SchemaAST from "effect/SchemaAST"
 import * as Stream from "effect/Stream"
-import * as Struct from "effect/Struct"
 import type { Span } from "effect/Tracer"
-import type { DeepMutable, Mutable } from "effect/Types"
-import * as AiError from "effect/unstable/ai/AiError"
-import { toCodecAnthropic } from "effect/unstable/ai/AnthropicStructuredOutput"
-import * as IdGenerator from "effect/unstable/ai/IdGenerator"
-import * as LanguageModel from "effect/unstable/ai/LanguageModel"
-import * as AiModel from "effect/unstable/ai/Model"
-import { toCodecOpenAI } from "effect/unstable/ai/OpenAiStructuredOutput"
-import type * as Prompt from "effect/unstable/ai/Prompt"
-import type * as Response from "effect/unstable/ai/Response"
-import { addGenAIAnnotations } from "effect/unstable/ai/Telemetry"
-import * as Tool from "effect/unstable/ai/Tool"
-import type * as HttpClientRequest from "effect/unstable/http/HttpClientRequest"
-import type * as HttpClientResponse from "effect/unstable/http/HttpClientResponse"
-import * as Generated from "./Generated.ts"
+import type { DeepMutable, Mutable, Simplify } from "effect/Types"
+import * as AiError from "effect/ai/AiError"
+import { toCodecAnthropic } from "effect/ai/AnthropicStructuredOutput"
+import * as IdGenerator from "effect/ai/IdGenerator"
+import * as LanguageModel from "effect/ai/LanguageModel"
+import * as AiModel from "effect/ai/Model"
+import { toCodecOpenAI } from "effect/ai/OpenAiStructuredOutput"
+import type * as Prompt from "effect/ai/Prompt"
+import type * as Response from "effect/ai/Response"
+import { addGenAIAnnotations } from "effect/ai/Telemetry"
+import * as Tool from "effect/ai/Tool"
+import type * as HttpClientRequest from "effect/http/HttpClientRequest"
+import type * as HttpClientResponse from "effect/http/HttpClientResponse"
+import type * as Generated from "./Generated.ts"
 import { ReasoningDetailsDuplicateTracker, resolveFinishReason } from "./internal/utilities.ts"
 import { type ChatStreamingResponseChunkData, OpenRouterClient } from "./OpenRouterClient.ts"
 
@@ -59,38 +57,26 @@ import { type ChatStreamingResponseChunkData, OpenRouterClient } from "./OpenRou
  * @category services
  * @since 4.0.0
  */
-export class Config
-  extends Context.Service<Config, typeof ConfigSchema.Encoded>()("@effect/ai-openrouter/OpenRouterLanguageModel/Config")
-{}
-
-/**
- * ConfigSchema validates provider configuration (test/ConfigSchema.test.ts).
- *
- * @category schemas
- * @since 4.0.0
- */
-export const ConfigSchema = Schema.Struct({
-  ...Struct.map(
-    Struct.omit(Generated.ChatRequest.fields, [
-      "messages",
-      "response_format",
-      "tools",
-      "tool_choice",
-      "stream",
-      "stream_options"
-    ]),
-    Schema.optionalKey
-  ),
-  strictJsonSchema: Schema.optional(Schema.Boolean)
-})
-
-/**
- * ModelConfigSchema validates configuration supplied alongside a model identifier.
- *
- * @category schemas
- * @since 4.0.0
- */
-export const ModelConfigSchema = ConfigSchema.mapFields(Struct.omit(["model"]))
+export class Config extends Context.Service<
+  Config,
+  Simplify<
+    & Partial<
+      Omit<
+        typeof Generated.ChatRequest.Encoded,
+        "messages" | "response_format" | "tools" | "tool_choice" | "stream" | "stream_options"
+      >
+    >
+    & {
+      /**
+       * Whether to use strict JSON schema validation for structured outputs.
+       *
+       * Only applies to models that support structured outputs. Defaults to
+       * `true` when structured outputs are supported.
+       */
+      readonly strictJsonSchema?: boolean | undefined
+    }
+  >
+>()("@effect/ai-openrouter/OpenRouterLanguageModel/Config") {}
 
 // =============================================================================
 // Provider Options / Metadata
@@ -117,7 +103,7 @@ export type FileAnnotation = Extract<
   { type: "file" }
 >
 
-declare module "effect/unstable/ai/Prompt" {
+declare module "effect/ai/Prompt" {
   /**
    * OpenRouter-specific options for system messages.
    *
@@ -336,7 +322,7 @@ declare module "effect/unstable/ai/Prompt" {
   }
 }
 
-declare module "effect/unstable/ai/Response" {
+declare module "effect/ai/Response" {
   /**
    * OpenRouter metadata attached to completed reasoning response parts.
    *
@@ -583,7 +569,7 @@ export const make = Effect.fnUntraced(function*({ model, config: providerConfig 
     }
   )
 
-  return yield* ProviderLanguageModel.make({
+  return yield* LanguageModel.make({
     codecTransformer: toCodecOpenAI,
     generateText: Effect.fnUntraced(
       function*(options) {
@@ -761,7 +747,7 @@ const prepareMessages = Effect.fnUntraced(
                       url: part.data instanceof URL
                         ? part.data.toString()
                         : part.data instanceof Uint8Array
-                        ? `data:${mediaType};base64,${Encoding.encodeBase64(part.data)}`
+                        ? `data:${mediaType};base64,${Base64.encode(part.data)}`
                         : part.data
                     },
                     ...(Predicate.isNotNull(partCacheControl) ? { cache_control: partCacheControl } : undefined)
@@ -799,7 +785,7 @@ const prepareMessages = Effect.fnUntraced(
                     type: "input_audio",
                     input_audio: {
                       data: part.data instanceof Uint8Array
-                        ? Encoding.encodeBase64(part.data)
+                        ? Base64.encode(part.data)
                         : getBase64FromDataUrl(part.data),
                       format
                     },
@@ -819,7 +805,7 @@ const prepareMessages = Effect.fnUntraced(
                     file_data: part.data instanceof URL
                       ? part.data.toString()
                       : part.data instanceof Uint8Array
-                      ? `data:${part.mediaType};base64,${Encoding.encodeBase64(part.data)}`
+                      ? `data:${part.mediaType};base64,${Base64.encode(part.data)}`
                       : part.data
                   },
                   ...(Predicate.isNotNull(partCacheControl) ? { cache_control: partCacheControl } : undefined)
@@ -1178,8 +1164,6 @@ const makeStreamResponse = Effect.fnUntraced(
     let activeTextId: string | undefined = undefined
 
     let totalToolCalls = 0
-    let toolParseError: AiError.AiError | undefined
-    let routedProvider: string | undefined
     const activeToolCalls: Record<number, {
       readonly id: string
       readonly type: "function"
@@ -1210,9 +1194,6 @@ const makeStreamResponse = Effect.fnUntraced(
     return stream.pipe(
       Stream.mapEffect(Effect.fnUntraced(function*(event) {
         const parts: Array<Response.StreamPartEncoded> = []
-        if (event.provider !== undefined) {
-          routedProvider = event.provider
-        }
 
         if (Predicate.isNotUndefined(event.error)) {
           finishReason = "error"
@@ -1456,6 +1437,39 @@ const makeStreamResponse = Effect.fnUntraced(
                   delta: argumentsDelta
                 })
               }
+
+              // Check if the tool call is complete
+              // @effect-diagnostics-next-line tryCatchInEffectGen:off
+              try {
+                const params = Tool.unsafeSecureJsonParse(activeToolCall.params)
+
+                parts.push({
+                  type: "tool-params-end",
+                  id: activeToolCall.id
+                })
+
+                parts.push({
+                  type: "tool-call",
+                  id: activeToolCall.id,
+                  name: activeToolCall.name,
+                  params,
+                  // Only attach reasoning_details to the first tool call to avoid
+                  // duplicating thinking blocks for parallel tool calls (Claude)
+                  metadata: reasoningDetailsAttachedToToolCall ? undefined : {
+                    openrouter: { reasoningDetails: accumulatedReasoningDetails }
+                  }
+                })
+
+                reasoningDetailsAttachedToToolCall = true
+
+                // Increment the total tool calls emitted by the stream and
+                // remove the active tool call
+                totalToolCalls += 1
+                delete activeToolCalls[toolCall.index]
+              } catch {
+                // Tool call incomplete, continue parsing
+                continue
+              }
             }
           }
 
@@ -1480,27 +1494,22 @@ const makeStreamResponse = Effect.fnUntraced(
           const hasEncryptedReasoning = accumulatedReasoningDetails.some(
             (detail) => detail.type === "reasoning.encrypted" && detail.data.length > 0
           )
+          if (totalToolCalls > 0 && hasEncryptedReasoning && finishReason === "stop") {
+            finishReason = "tool-calls"
+          }
 
-          if (finishReason === "tool-calls" || finishReason === "stop") {
+          // Forward any unsent tool calls if finish reason is 'tool-calls'
+          if (finishReason === "tool-calls") {
             for (const toolCall of Object.values(activeToolCalls)) {
-              const parsed = yield* Effect.try({
-                try: () => Tool.unsafeSecureJsonParse(toolCall.params.length === 0 ? "{}" : toolCall.params),
-                catch: (cause) =>
-                  AiError.make({
-                    module: "OpenRouterLanguageModel",
-                    method: "makeStreamResponse",
-                    reason: new AiError.ToolParameterValidationError({
-                      toolName: toolCall.name,
-                      description: `Failed to securely JSON parse tool parameters: ${cause}`
-                    })
-                  })
-              }).pipe(Effect.result)
-              parts.push({ type: "tool-params-end", id: toolCall.id })
-              if (parsed._tag === "Failure") {
-                toolParseError ??= parsed.failure
-                continue
+              // Coerce invalid tool call parameters to an empty object
+              let params: unknown
+              // @effect-diagnostics-next-line tryCatchInEffectGen:off
+              try {
+                params = Tool.unsafeSecureJsonParse(toolCall.params)
+              } catch {
+                params = {}
               }
-              const params = parsed.success
+
               // Only attach reasoning_details to the first tool call to avoid
               // duplicating thinking blocks for parallel tool calls (Claude)
               parts.push({
@@ -1514,14 +1523,8 @@ const makeStreamResponse = Effect.fnUntraced(
               })
 
               reasoningDetailsAttachedToToolCall = true
-              totalToolCalls += 1
-            }
-          } else {
-            for (const toolCall of Object.values(activeToolCalls)) {
-              parts.push({ type: "tool-params-end", id: toolCall.id })
             }
           }
-          if (totalToolCalls > 0 && hasEncryptedReasoning && finishReason === "stop") finishReason = "tool-calls"
 
           // End reasoning first if it was started, to maintain proper order
           if (reasoningStarted) {
@@ -1546,8 +1549,8 @@ const makeStreamResponse = Effect.fnUntraced(
                 ? { systemFingerprint: event.system_fingerprint }
                 : undefined),
               ...(Predicate.isNotUndefined(event.usage) ? { usage: event.usage } : undefined),
-              ...(routedProvider !== undefined
-                ? { provider: routedProvider }
+              ...(Predicate.hasProperty(event, "provider") && Predicate.isString(event.provider)
+                ? { provider: event.provider }
                 : undefined),
               ...(accumulatedFileAnnotations.length > 0 ? { annotations: accumulatedFileAnnotations } : undefined)
             }
@@ -1564,8 +1567,7 @@ const makeStreamResponse = Effect.fnUntraced(
 
         return parts
       })),
-      Stream.flattenIterable,
-      Stream.concat(Stream.suspend(() => toolParseError === undefined ? Stream.empty : Stream.fail(toolParseError)))
+      Stream.flattenIterable
     )
   }
 )
@@ -1842,21 +1844,16 @@ const getUsage = (usage: Generated.ChatUsage | undefined): Response.Usage => {
   const cacheReadTokens = usage.prompt_tokens_details?.cached_tokens ?? 0
   const cacheWriteTokens = usage.prompt_tokens_details?.cache_write_tokens ?? 0
   const reasoningTokens = usage.completion_tokens_details?.reasoning_tokens ?? 0
-  // Some providers report cached or reasoning tokens separately from their parent counts.
-  // Treat details exceeding the parent as disjoint to avoid negative remainders.
-  // Otherwise, retain subset accounting.
-  const inputTotal = cacheReadTokens > promptTokens ? promptTokens + cacheReadTokens : promptTokens
-  const outputTotal = reasoningTokens > completionTokens ? completionTokens + reasoningTokens : completionTokens
   return {
     inputTokens: {
-      uncached: inputTotal - cacheReadTokens,
-      total: inputTotal,
+      uncached: promptTokens - cacheReadTokens,
+      total: promptTokens,
       cacheRead: cacheReadTokens,
       cacheWrite: cacheWriteTokens
     },
     outputTokens: {
-      total: outputTotal,
-      text: outputTotal - reasoningTokens,
+      total: completionTokens,
+      text: completionTokens - reasoningTokens,
       reasoning: reasoningTokens
     }
   }
