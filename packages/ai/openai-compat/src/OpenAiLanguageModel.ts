@@ -9,6 +9,7 @@
  * @since 4.0.0
  */
 import * as ProviderLanguageModel from "@tardie/ai/LanguageModel"
+import * as ToolResult from "@tardie/ai/ToolResult"
 import * as Context from "effect/Context"
 import * as DateTime from "effect/DateTime"
 import * as Effect from "effect/Effect"
@@ -792,7 +793,7 @@ const prepareMessages = Effect.fnUntraced(
 
     const messages: Array<InputItem> = []
 
-    for (const message of options.prompt.content) {
+    for (const message of ToolResult.prepare(options.prompt, () => false).content) {
       switch (message.role) {
         case "system": {
           messages.push({
@@ -1023,7 +1024,7 @@ const prepareMessages = Effect.fnUntraced(
             messages.push({
               type: "function_call_output",
               call_id: part.id,
-              output: typeof part.result === "string" ? part.result : JSON.stringify(part.result),
+              output: ToolResult.text(part.result),
               ...(Predicate.isNotNull(status) ? { status } : {})
             })
           }

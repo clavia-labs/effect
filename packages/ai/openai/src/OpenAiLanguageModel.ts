@@ -9,6 +9,7 @@
  * @since 4.0.0
  */
 import * as ProviderLanguageModel from "@tardie/ai/LanguageModel"
+import * as ToolResult from "@tardie/ai/ToolResult"
 import * as Context from "effect/Context"
 import * as DateTime from "effect/DateTime"
 import * as Effect from "effect/Effect"
@@ -29,7 +30,7 @@ import * as IdGenerator from "effect/unstable/ai/IdGenerator"
 import * as LanguageModel from "effect/unstable/ai/LanguageModel"
 import * as AiModel from "effect/unstable/ai/Model"
 import { toCodecOpenAI } from "effect/unstable/ai/OpenAiStructuredOutput"
-import type * as Prompt from "effect/unstable/ai/Prompt"
+import * as Prompt from "effect/unstable/ai/Prompt"
 import type * as Response from "effect/unstable/ai/Response"
 import * as Tool from "effect/unstable/ai/Tool"
 import type * as HttpClientRequest from "effect/unstable/http/HttpClientRequest"
@@ -1183,7 +1184,9 @@ const prepareMessages = Effect.fnUntraced(
             messages.push({
               type: "function_call_output",
               call_id: part.id,
-              output: typeof part.result === "string" ? part.result : JSON.stringify(part.result),
+              output: ToolResult.isContent(part.result)
+                ? yield* toolContent(part.result, { config, options, capabilities, include, toolNameMapper })
+                : ToolResult.text(part.result),
               ...(Predicate.isNotNull(status) ? { status } : {})
             })
           }
@@ -1196,6 +1199,31 @@ const prepareMessages = Effect.fnUntraced(
     return messages
   }
 )
+
+const toolContent = Effect.fnUntraced(function*<Tools extends ReadonlyArray<Tool.Any>>(
+  result: ToolResult.Content,
+  input: Parameters<typeof prepareMessages<Tools>>[0]
+): Effect.fn.Return<ReadonlyArray<typeof OpenAiSchema.InputContent.Encoded>, AiError.AiError> {
+  const encoded = yield* prepareMessages({
+    ...input,
+    options: {
+      ...input.options,
+      incrementalPrompt: undefined,
+      prompt: Prompt.fromMessages([Prompt.makeMessage("user", { content: result.value })])
+    }
+  })
+  const message = encoded[0]
+  const content = message !== undefined && "content" in message ? message.content : []
+  return yield* Schema.decodeUnknownEffect(Schema.Array(OpenAiSchema.InputContent))(content).pipe(
+    Effect.mapError((cause) =>
+      AiError.make({
+        module: "OpenAiLanguageModel",
+        method: "toolContent",
+        reason: new AiError.InvalidUserInputError({ description: String(cause) })
+      })
+    )
+  )
+})
 
 // =============================================================================
 // HTTP Details

@@ -10,6 +10,7 @@
  */
 /** @effect-diagnostics preferSchemaOverJson:skip-file */
 import * as ProviderLanguageModel from "@tardie/ai/LanguageModel"
+import * as ToolResult from "@tardie/ai/ToolResult"
 import * as Arr from "effect/Array"
 import * as Context from "effect/Context"
 import * as DateTime from "effect/DateTime"
@@ -686,7 +687,7 @@ const prepareMessages = Effect.fnUntraced(
 
     const reasoningDetailsTracker = new ReasoningDetailsDuplicateTracker()
 
-    for (const message of options.prompt.content) {
+    for (const message of ToolResult.prepare(options.prompt, () => false).content) {
       switch (message.role) {
         case "system": {
           const cache_control = getCacheControl(message)
@@ -914,7 +915,7 @@ const prepareMessages = Effect.fnUntraced(
             messages.push({
               role: "tool",
               tool_call_id: part.id,
-              content: typeof part.result === "string" ? part.result : JSON.stringify(part.result)
+              content: ToolResult.text(part.result)
             })
           }
 
