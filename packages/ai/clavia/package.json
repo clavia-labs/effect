@@ -1,6 +1,6 @@
 {
   "name": "@tardie/ai",
-  "version": "0.0.4",
+  "version": "0.0.5",
   "type": "module",
   "license": "MIT",
   "description": "Shared provider construction for Clavia Effect AI providers.",
@@ -13,7 +13,8 @@
   "exports": {
     ".": "./src/LanguageModel.ts",
     "./LanguageModel": "./src/LanguageModel.ts",
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./ToolResult": "./src/ToolResult.ts"
   },
   "files": [
     "src/**/*.ts",
@@ -28,7 +29,8 @@
     "exports": {
       ".": "./dist/LanguageModel.js",
       "./LanguageModel": "./dist/LanguageModel.js",
-      "./package.json": "./package.json"
+      "./package.json": "./package.json",
+      "./ToolResult": "./dist/ToolResult.js"
     }
   },
   "scripts": {

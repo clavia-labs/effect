@@ -9,6 +9,7 @@
  */
 /** @effect-diagnostics preferSchemaOverJson:skip-file */
 import * as ProviderLanguageModel from "@tardie/ai/LanguageModel"
+import * as ToolResult from "@tardie/ai/ToolResult"
 import * as Arr from "effect/Array"
 import * as Context from "effect/Context"
 import * as DateTime from "effect/DateTime"
@@ -30,7 +31,7 @@ import { toCodecAnthropic } from "effect/unstable/ai/AnthropicStructuredOutput"
 import * as IdGenerator from "effect/unstable/ai/IdGenerator"
 import * as LanguageModel from "effect/unstable/ai/LanguageModel"
 import * as AiModel from "effect/unstable/ai/Model"
-import type * as Prompt from "effect/unstable/ai/Prompt"
+import * as Prompt from "effect/unstable/ai/Prompt"
 import type * as Response from "effect/unstable/ai/Response"
 import * as Tool from "effect/unstable/ai/Tool"
 import type * as HttpClientRequest from "effect/unstable/http/HttpClientRequest"
@@ -976,7 +977,9 @@ const prepareMessages = Effect.fnUntraced(
                   content.push({
                     type: "tool_result",
                     tool_use_id: part.id,
-                    content: typeof part.result === "string" ? part.result : JSON.stringify(part.result),
+                    content: ToolResult.isContent(part.result)
+                      ? yield* toolContent(part.result, { betas, options, toolNameMapper })
+                      : ToolResult.text(part.result),
                     is_error: part.isFailure,
                     cache_control: cacheControl
                   })
@@ -1235,6 +1238,36 @@ const prepareMessages = Effect.fnUntraced(
     }
   }
 )
+
+const toolContent = Effect.fnUntraced(function*<Tools extends ReadonlyArray<Tool.Any>>(
+  result: ToolResult.Content,
+  input: Parameters<typeof prepareMessages<Tools>>[0]
+): Effect.fn.Return<
+  ReadonlyArray<
+    | typeof Generated.BetaRequestTextBlock.Encoded
+    | typeof Generated.BetaRequestImageBlock.Encoded
+    | typeof Generated.BetaRequestDocumentBlock.Encoded
+  >,
+  AiError.AiError
+> {
+  const encoded = yield* prepareMessages({
+    ...input,
+    options: { ...input.options, prompt: Prompt.fromMessages([Prompt.makeMessage("user", { content: result.value })]) }
+  })
+  return yield* Schema.decodeUnknownEffect(Schema.Array(Schema.Union([
+    Generated.BetaRequestTextBlock,
+    Generated.BetaRequestImageBlock,
+    Generated.BetaRequestDocumentBlock
+  ])))(encoded.messages[0]?.content ?? []).pipe(
+    Effect.mapError((cause) =>
+      AiError.make({
+        module: "AnthropicLanguageModel",
+        method: "toolContent",
+        reason: new AiError.InvalidUserInputError({ description: String(cause) })
+      })
+    )
+  )
+})
 
 // =============================================================================
 // Tool Conversion

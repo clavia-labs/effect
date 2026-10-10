@@ -9,14 +9,18 @@ import type {
   ConverseStreamCommandInput,
   ConverseStreamCommandOutput,
   ConverseStreamOutput,
+  DocumentBlock,
+  ImageBlock,
   Message
 } from "@aws-sdk/client-bedrock-runtime"
 import * as ProviderLanguageModel from "@tardie/ai"
+import * as ToolResult from "@tardie/ai/ToolResult"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Encoding from "effect/Encoding"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
+import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
 import * as Stream from "effect/Stream"
 import type { Prompt, Response } from "effect/unstable/ai"
@@ -325,7 +329,11 @@ const bedrockRequest = (
     )
   const messages: Array<Message> = []
   const system: Array<{ text: string }> = []
-  for (const message of request.prompt.content) {
+  const prompt = ToolResult.prepare(
+    request.prompt,
+    (file) => !textHistory && file.mediaType.startsWith("image/") && /anthropic|claude|nova/i.test(modelId)
+  )
+  for (const message of prompt.content) {
     if (message.role === "system") {
       system.push({ text: message.content })
       continue
@@ -344,7 +352,9 @@ const bedrockRequest = (
         if (part.type === "tool-result") {
           return [{
             text: `<tool_result id="${escapeXml(part.id)}" status="${part.isFailure ? "error" : "success"}">\n${
-              escapeXmlText(JSON.stringify(part.result))
+              escapeXmlText(
+                ToolResult.isContent(part.result) ? ToolResult.text(part.result) : JSON.stringify(part.result)
+              )
             }\n</tool_result>`
           }]
         }
@@ -407,6 +417,41 @@ const escapeXmlText = (value: string): string =>
 
 const escapeXml = (value: string): string => escapeXmlText(value).replace(/"/g, "&quot;").replace(/'/g, "&apos;")
 
+const bedrockFile = (part: Prompt.FilePart): { image: ImageBlock } | { document: DocumentBlock } => {
+  if (part.data instanceof URL || (typeof part.data === "string" && /^https?:\/\//i.test(part.data))) {
+    throw inputError("Bedrock file content requires bytes or base64 data")
+  }
+  const bytes = part.data instanceof Uint8Array
+    ? part.data
+    : Result.getOrThrowWith(
+      Encoding.decodeBase64(part.data.replace(/^data:[^;]+;base64,/, "")),
+      () => inputError("Invalid base64 Bedrock file content")
+    )
+  if (!(bytes instanceof Uint8Array)) throw inputError("Invalid base64 Bedrock file content")
+  const mediaType = part.mediaType === "image/*" ? "image/jpeg" : part.mediaType
+  switch (mediaType) {
+    case "image/png":
+      return { image: { format: "png", source: { bytes } } }
+    case "image/jpeg":
+      return { image: { format: "jpeg", source: { bytes } } }
+    case "image/gif":
+      return { image: { format: "gif", source: { bytes } } }
+    case "image/webp":
+      return { image: { format: "webp", source: { bytes } } }
+    case "application/pdf":
+    case "text/plain":
+      return {
+        document: {
+          format: mediaType === "application/pdf" ? "pdf" : "txt",
+          name: "Tool attachment",
+          source: { bytes }
+        }
+      }
+    default:
+      throw inputError(`Unsupported Bedrock file media type: ${mediaType}`)
+  }
+}
+
 const toBedrockPart = (
   part:
     | Prompt.UserMessage["content"][number]
@@ -417,6 +462,8 @@ const toBedrockPart = (
   switch (part.type) {
     case "text":
       return { text: part.text }
+    case "file":
+      return bedrockFile(part)
     case "reasoning": {
       const native = part.options.bedrock
       if (native?.redactedContent !== undefined) {
@@ -442,7 +489,9 @@ const toBedrockPart = (
         toolResult: {
           toolUseId: part.id,
           status: part.isFailure ? "error" : "success",
-          content: [{ text: typeof part.result === "string" ? part.result : JSON.stringify(part.result) }]
+          content: ToolResult.isContent(part.result)
+            ? part.result.value.map((item) => item.type === "text" ? { text: item.text } : bedrockFile(item))
+            : [{ text: ToolResult.text(part.result) }]
         }
       }
     default:
