@@ -326,7 +326,10 @@ const FunctionCall = Schema.Struct({
   call_id: Schema.String,
   name: Schema.String,
   arguments: Schema.String,
-  status: Schema.optionalKey(MessageStatus)
+  status: Schema.optionalKey(MessageStatus),
+  // Some Responses-compatible providers attach the model's opaque reasoning
+  // state to function calls. It must be sent back unchanged.
+  encrypted_content: Schema.optionalKey(Schema.NullOr(Schema.String))
 })
 
 const FunctionCallOutput = Schema.Struct({

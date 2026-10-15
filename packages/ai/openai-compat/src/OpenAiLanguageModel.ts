@@ -209,6 +209,11 @@ declare module "effect/unstable/ai/Prompt" {
        * The status to send for the tool-call item.
        */
       readonly status?: MessageStatus | null
+      /**
+       * Opaque reasoning state returned on a Responses function call item.
+       * Declared to match the OpenAI provider declarations.
+       */
+      readonly encryptedContent?: string | null
     } | null
   }
 
@@ -436,6 +441,11 @@ declare module "effect/unstable/ai/Response" {
        * The OpenAI item ID associated with the tool call.
        */
       readonly itemId?: string | null
+      /**
+       * Opaque reasoning state returned on a Responses function call item.
+       * Declared to match the OpenAI provider declarations.
+       */
+      readonly encryptedContent?: string | null
     } | null
   }
 

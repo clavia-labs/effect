@@ -245,6 +245,121 @@ for (const store of [false, true]) {
     }))
 }
 
+it.effect("replays streamed OpenAI function call encrypted content in received order", () =>
+  Effect.gen(function*() {
+    const reasoning = (id: string, encrypted_content: string) => ({
+      type: "reasoning",
+      id,
+      encrypted_content,
+      summary: [{ type: "summary_text", text: "Check" }]
+    })
+    const call = (id: string, encrypted_content?: string) => ({
+      type: "function_call",
+      id: `fc_${id}`,
+      call_id: id,
+      name: "read",
+      arguments: JSON.stringify({ path: id }),
+      ...(encrypted_content === undefined ? {} : { encrypted_content })
+    })
+    const output = [
+      reasoning("rs_a", "opaque-a"),
+      call("a", "signed-a"),
+      reasoning("rs_b", "opaque-b"),
+      call("b", "signed-b")
+    ]
+    const events = [
+      { type: "response.output_item.added", output_index: 0, item: output[0] },
+      {
+        type: "response.reasoning_summary_text.delta",
+        item_id: "rs_a",
+        output_index: 0,
+        summary_index: 0,
+        delta: "Check"
+      },
+      { type: "response.output_item.done", output_index: 0, item: output[0] },
+      // Signature on the added item; the call is emitted on argument completion.
+      { type: "response.output_item.added", output_index: 1, item: output[1] },
+      {
+        type: "response.function_call_arguments.done",
+        output_index: 1,
+        item_id: "fc_a",
+        arguments: "{\"path\":\"a\"}"
+      },
+      { type: "response.output_item.done", output_index: 1, item: output[1] },
+      { type: "response.output_item.added", output_index: 2, item: output[2] },
+      {
+        type: "response.reasoning_summary_text.delta",
+        item_id: "rs_b",
+        output_index: 2,
+        summary_index: 0,
+        delta: "Check"
+      },
+      { type: "response.output_item.done", output_index: 2, item: output[2] },
+      // Signature only on the completed item; the call is emitted on item completion.
+      { type: "response.output_item.added", output_index: 3, item: call("b") },
+      { type: "response.output_item.done", output_index: 3, item: output[3] },
+      {
+        type: "response.completed",
+        response: {
+          id: "response",
+          created_at: 1,
+          model: "fixture",
+          status: "completed",
+          output,
+          usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 }
+        }
+      }
+    ]
+    const { stream, requests } = fixture("openai", "valid", false, "native", {
+      events,
+      config: { store: false, include: ["reasoning.encrypted_content"] }
+    })
+    const parts = yield* Stream.runCollect(stream())
+    assert.deepStrictEqual(
+      parts.flatMap((part) => part.type === "tool-call" ? [part.metadata.openai?.encryptedContent] : []),
+      ["signed-a", "signed-b"]
+    )
+    const restored = Schema.decodeUnknownSync(Prompt.Prompt)(
+      JSON.parse(JSON.stringify(Prompt.fromResponseParts(parts)))
+    )
+    const results = Prompt.make([{
+      role: "tool",
+      content: ["a", "b"].map((id) => ({ type: "tool-result", id, name: "read", result: "result", isFailure: false }))
+    }])
+    yield* Stream.runDrain(stream(Prompt.concat(restored, results)))
+    const replay = Schema.decodeUnknownSync(Schema.Struct({ input: Schema.Array(Schema.Unknown) }))(requests[1]).input
+    assert.deepStrictEqual(replay.slice(0, 4), [
+      {
+        type: "reasoning",
+        id: "rs_a",
+        summary: [{ type: "summary_text", text: "Check" }],
+        encrypted_content: "opaque-a"
+      },
+      {
+        type: "function_call",
+        name: "read",
+        call_id: "a",
+        arguments: "{\"path\":\"a\"}",
+        id: "fc_a",
+        encrypted_content: "signed-a"
+      },
+      {
+        type: "reasoning",
+        id: "rs_b",
+        summary: [{ type: "summary_text", text: "Check" }],
+        encrypted_content: "opaque-b"
+      },
+      {
+        type: "function_call",
+        name: "read",
+        call_id: "b",
+        arguments: "{\"path\":\"b\"}",
+        id: "fc_b",
+        encrypted_content: "signed-b"
+      }
+    ])
+  }))
+
 it.effect("rejects multiple compatible choices before sending a request", () =>
   Effect.gen(function*() {
     const { stream, requests } = fixture("compat", "valid", false, "reasoning", { config: { n: 2 } })

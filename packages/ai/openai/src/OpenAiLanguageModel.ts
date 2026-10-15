@@ -201,6 +201,11 @@ declare module "effect/unstable/ai/Prompt" {
        * The ID of the approval request.
        */
       readonly approvalRequestId?: string | null
+      /**
+       * Opaque reasoning state returned on the function call item by some
+       * Responses-compatible providers. It is replayed unchanged.
+       */
+      readonly encryptedContent?: string | null
     } | null
   }
 
@@ -436,6 +441,11 @@ declare module "effect/unstable/ai/Response" {
        * The OpenAI item ID associated with the tool call.
        */
       readonly itemId?: string | null
+      /**
+       * Opaque reasoning state returned on the function call item, to be sent
+       * back in later requests.
+       */
+      readonly encryptedContent?: string | null
     } | null
   }
 
@@ -1074,13 +1084,16 @@ const prepareMessages = Effect.fnUntraced(
                   break
                 }
 
+                const encryptedContent = getEncryptedContent(part)
+
                 messages.push({
                   type: "function_call",
                   name: toolName,
                   call_id: part.id,
                   arguments: JSON.stringify(part.params),
                   ...(Predicate.isNotNull(id) ? { id } : {}),
-                  ...(Predicate.isNotNull(status) ? { status } : {})
+                  ...(Predicate.isNotNull(status) ? { status } : {}),
+                  ...(Predicate.isNotNull(encryptedContent) ? { encrypted_content: encryptedContent } : {})
                 })
 
                 break
@@ -1423,7 +1436,12 @@ const makeResponse = Effect.fnUntraced(
             id: part.call_id,
             name: toolName,
             params,
-            metadata: { openai: makeItemIdMetadata(part.id) }
+            metadata: {
+              openai: {
+                ...makeItemIdMetadata(part.id),
+                ...makeEncryptedContentMetadata(part.encrypted_content)
+              }
+            }
           })
           break
         }
@@ -1772,6 +1790,7 @@ const makeStreamResponse = Effect.fnUntraced(
       readonly name: string
       readonly functionCall?: {
         emitted: boolean
+        readonly encryptedContent: string | null | undefined
       }
       readonly applyPatch?: {
         hasDiff: boolean
@@ -1971,7 +1990,7 @@ const makeStreamResponse = Effect.fnUntraced(
                 activeToolCalls[event.output_index] = {
                   id: event.item.call_id,
                   name: event.item.name,
-                  functionCall: { emitted: false }
+                  functionCall: { emitted: false, encryptedContent: event.item.encrypted_content }
                 }
                 parts.push({
                   type: "tool-params-start",
@@ -2218,7 +2237,14 @@ const makeStreamResponse = Effect.fnUntraced(
                   id: event.item.call_id,
                   name: toolName,
                   params,
-                  metadata: { openai: makeItemIdMetadata(event.item.id) }
+                  metadata: {
+                    openai: {
+                      ...makeItemIdMetadata(event.item.id),
+                      ...makeEncryptedContentMetadata(
+                        event.item.encrypted_content ?? toolCall?.functionCall?.encryptedContent
+                      )
+                    }
+                  }
                 })
 
                 break
@@ -2529,7 +2555,12 @@ const makeStreamResponse = Effect.fnUntraced(
                 id: toolCall.id,
                 name: toolCall.name,
                 params,
-                metadata: { openai: makeItemIdMetadata(event.item_id) }
+                metadata: {
+                  openai: {
+                    ...makeItemIdMetadata(event.item_id),
+                    ...makeEncryptedContentMetadata(toolCall.functionCall.encryptedContent)
+                  }
+                }
               })
 
               toolCall.functionCall.emitted = true
@@ -2990,7 +3021,7 @@ const getStatus = (
     | Prompt.ToolResultPart
 ): typeof OpenAiSchema.MessageStatus.Encoded | null => part.options.openai?.status ?? null
 const getEncryptedContent = (
-  part: Prompt.ReasoningPart
+  part: Prompt.ReasoningPart | Prompt.ToolCallPart
 ): string | null => part.options.openai?.encryptedContent ?? null
 
 const getImageDetail = (part: Prompt.FilePart): ImageDetail => part.options.openai?.imageDetail ?? "auto"

@@ -16,6 +16,7 @@ This fork carries provider changes for Tardigrade. Consumers use upstream `effec
 | Completion evidence      | OpenAI compatible         | Reject a final sentinel without a provider finish reason.                                                                                                             |
 | Reasoning replay         | OpenAI compatible         | Preserve the observed reasoning field and combine assistant reasoning, text, and calls during replay.                                                                 |
 | Shared metadata types    | OpenAI compatible         | Align approval metadata with the OpenAI provider declarations.                                                                                                        |
+| Function call signatures | OpenAI, OpenAI compatible | Replay `encrypted_content` from function call items with reasoning items in received order when `store` is false. The compatible provider declares the type.          |
 
 ## Response format wrapper
 
