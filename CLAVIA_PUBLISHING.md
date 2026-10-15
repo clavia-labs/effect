@@ -4,17 +4,17 @@ The `clavia/ai-providers` branch publishes six AI packages. Each package require
 
 | Directory                   | npm package                | Version                 |
 | --------------------------- | -------------------------- | ----------------------- |
-| `packages/ai/bedrock`       | `@tardie/ai-bedrock`       | `0.0.8`                 |
-| `packages/ai/clavia`        | `@tardie/ai`               | `0.0.4`                 |
-| `packages/ai/openai`        | `@tardie/ai-openai`        | `4.0.0-rc.113-clavia.6` |
-| `packages/ai/anthropic`     | `@tardie/ai-anthropic`     | `4.0.0-rc.113-clavia.6` |
-| `packages/ai/openai-compat` | `@tardie/ai-openai-compat` | `4.0.0-rc.113-clavia.6` |
-| `packages/ai/openrouter`    | `@tardie/ai-openrouter`    | `4.0.0-rc.113-clavia.3` |
+| `packages/ai/bedrock`       | `@tardie/ai-bedrock`       | `0.0.10`                |
+| `packages/ai/clavia`        | `@tardie/ai`               | `0.0.5`                 |
+| `packages/ai/openai`        | `@tardie/ai-openai`        | `4.0.0-rc.113-clavia.8` |
+| `packages/ai/anthropic`     | `@tardie/ai-anthropic`     | `4.0.0-rc.113-clavia.7` |
+| `packages/ai/openai-compat` | `@tardie/ai-openai-compat` | `4.0.0-rc.113-clavia.9` |
+| `packages/ai/openrouter`    | `@tardie/ai-openrouter`    | `4.0.0-rc.113-clavia.4` |
 
 ## Install packages
 
 ```sh
-npm install effect@4.0.0-rc.115 @tardie/ai-openai@4.0.0-rc.113-clavia.6
+npm install effect@4.0.0-rc.115 @tardie/ai-openai@4.0.0-rc.113-clavia.8
 npm ls effect
 ```
 
