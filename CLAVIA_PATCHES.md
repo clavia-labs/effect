@@ -16,6 +16,7 @@ This fork carries provider changes for Tardigrade. Consumers use upstream `effec
 | Completion evidence      | OpenAI compatible         | Reject a final sentinel without a provider finish reason.                                                                                                             |
 | Reasoning replay         | OpenAI compatible         | Preserve the observed reasoning field and combine assistant reasoning, text, and calls during replay.                                                                 |
 | Shared metadata types    | OpenAI compatible         | Align approval metadata with the OpenAI provider declarations.                                                                                                        |
+| Function call signatures | OpenAI, OpenAI compatible | Replay `encrypted_content` from function call items with reasoning items in received order when `store` is false. The compatible provider declares the type.          |
 
 ## Response format wrapper
 
@@ -144,3 +145,9 @@ Thinking configuration accepts `display` (`"summarized"` or `"omitted"`) for ada
 Responses report `usage.output_tokens_details.thinking_tokens`. The adapter maps it to `outputTokens.reasoning` for generated and streamed responses. A later `message_delta` without the detail keeps the earlier count. The fields are added to the generated schemas and recorded as a spec patch in `codegen.yml`.
 
 `packages/ai/anthropic/test/AnthropicLanguageModel.test.ts` checks configuration decoding, the request body for both thinking types, and reasoning usage with and without the detail.
+
+## Function call signatures
+
+Some providers that serve reasoning models over the Responses protocol return opaque reasoning state as `encrypted_content` on `function_call` items. A stream can send it only on `response.output_item.done`, after `response.function_call_arguments.done`. Streamed function calls are therefore emitted on item completion, with the completed item's `encrypted_content` in `metadata.openai.encryptedContent`. A call whose arguments completed without an item completion is emitted at the terminal response event, before the finish part, in output order. Replay sends the value back on the `function_call` input item, after the preceding reasoning items.
+
+`packages/ai/openai/test/OpenAiLanguageModel.test.ts` covers generated responses and unchanged OpenAI requests. `packages/ai/clavia/test/ProviderStreams.test.ts` covers a signature only on the completed item, interleaved reasoning replay, and calls without item completion.

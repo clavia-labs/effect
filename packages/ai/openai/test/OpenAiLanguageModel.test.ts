@@ -2040,6 +2040,108 @@ describe("OpenAiLanguageModel", () => {
         strictEqual(body.temperature, 0.5)
       }).pipe(Effect.provide(makeTestLayer())))
   })
+
+  describe("stateless reasoning replay", () => {
+    it.effect("replays reasoning and function call encrypted content for an explicitly configured model", () =>
+      Effect.gen(function*() {
+        const model = OpenAiLanguageModel.model("vendor-reasoner", {
+          store: false,
+          include: ["reasoning.encrypted_content"]
+        })
+        const first = yield* LanguageModel.generateText({
+          prompt: "Use the tool",
+          toolkit: TestToolkit
+        }).pipe(Effect.provide(model))
+
+        const toolCall = first.content.find((part) => part.type === "tool-call")
+        deepStrictEqual(toolCall?.metadata.openai, { itemId: "fc_1", encryptedContent: "call-signature" })
+
+        yield* LanguageModel.generateText({
+          prompt: Prompt.concat(Prompt.make("Use the tool"), Prompt.fromResponseParts(first.content)),
+          toolkit: TestToolkit
+        }).pipe(Effect.provide(model))
+
+        const requests = yield* MockHttpClient.requests
+        const firstBody = yield* getRequestBody(requests[0])
+        const replayBody = yield* getRequestBody(requests[1])
+        deepStrictEqual(firstBody.include, ["reasoning.encrypted_content"])
+        deepStrictEqual(replayBody.include, ["reasoning.encrypted_content"])
+        deepStrictEqual(replayBody.input.slice(1, 3), [
+          {
+            type: "reasoning",
+            id: "rs_1",
+            summary: [{ type: "summary_text", text: "Plan" }],
+            encrypted_content: "reasoning-state"
+          },
+          {
+            type: "function_call",
+            name: "TestTool",
+            call_id: "call_1",
+            arguments: "{\"input\":\"hello\"}",
+            id: "fc_1",
+            encrypted_content: "call-signature"
+          }
+        ])
+        strictEqual(replayBody.input[3].type, "function_call_output")
+        strictEqual(replayBody.input[3].call_id, "call_1")
+      }).pipe(
+        Effect.provide([
+          makeTestLayer({
+            body: {
+              model: "vendor-reasoner" as any,
+              output: [
+                makeReasoningOutput(["Plan"], { id: "rs_1", encrypted_content: "reasoning-state" }),
+                {
+                  ...makeFunctionCall("TestTool", { input: "hello" }, { id: "fc_1", call_id: "call_1" }),
+                  encrypted_content: "call-signature"
+                } as Generated.FunctionToolCall
+              ]
+            }
+          }),
+          TestToolkitLayer
+        ])
+      ))
+
+    for (
+      const { model, include } of [
+        { model: "gpt-4o-mini", include: undefined },
+        { model: "gpt-5", include: ["reasoning.encrypted_content"] }
+      ]
+    ) {
+      it.effect(`keeps inferred includes and plain function calls for ${model}`, () =>
+        Effect.gen(function*() {
+          yield* LanguageModel.generateText({
+            prompt: Prompt.make([
+              { role: "user", content: "Use the tool" },
+              {
+                role: "assistant",
+                content: [
+                  Prompt.toolCallPart({
+                    id: "call_abc",
+                    name: "TestTool",
+                    params: { input: "test" },
+                    providerExecuted: false,
+                    options: { openai: { itemId: "fc_abc" } }
+                  })
+                ]
+              }
+            ]),
+            toolkit: TestToolkit
+          }).pipe(Effect.provide(OpenAiLanguageModel.model(model, { store: false })))
+
+          const requests = yield* MockHttpClient.requests
+          const body = yield* getRequestBody(requests[0])
+          deepStrictEqual(body.include, include)
+          deepStrictEqual(body.input.find((item: any) => item.type === "function_call"), {
+            type: "function_call",
+            name: "TestTool",
+            call_id: "call_abc",
+            arguments: "{\"input\":\"test\"}",
+            id: "fc_abc"
+          })
+        }).pipe(Effect.provide([makeTestLayer({ body: { model: model as any } }), TestToolkitLayer])))
+    }
+  })
 })
 
 // =============================================================================

@@ -201,6 +201,11 @@ declare module "effect/unstable/ai/Prompt" {
        * The ID of the approval request.
        */
       readonly approvalRequestId?: string | null
+      /**
+       * Opaque reasoning state returned on the function call item by some
+       * Responses-compatible providers. It is replayed unchanged.
+       */
+      readonly encryptedContent?: string | null
     } | null
   }
 
@@ -436,6 +441,11 @@ declare module "effect/unstable/ai/Response" {
        * The OpenAI item ID associated with the tool call.
        */
       readonly itemId?: string | null
+      /**
+       * Opaque reasoning state returned on the function call item, to be sent
+       * back in later requests.
+       */
+      readonly encryptedContent?: string | null
     } | null
   }
 
@@ -1074,13 +1084,16 @@ const prepareMessages = Effect.fnUntraced(
                   break
                 }
 
+                const encryptedContent = getEncryptedContent(part)
+
                 messages.push({
                   type: "function_call",
                   name: toolName,
                   call_id: part.id,
                   arguments: JSON.stringify(part.params),
                   ...(Predicate.isNotNull(id) ? { id } : {}),
-                  ...(Predicate.isNotNull(status) ? { status } : {})
+                  ...(Predicate.isNotNull(status) ? { status } : {}),
+                  ...(Predicate.isNotNull(encryptedContent) ? { encrypted_content: encryptedContent } : {})
                 })
 
                 break
@@ -1423,7 +1436,12 @@ const makeResponse = Effect.fnUntraced(
             id: part.call_id,
             name: toolName,
             params,
-            metadata: { openai: makeItemIdMetadata(part.id) }
+            metadata: {
+              openai: {
+                ...makeItemIdMetadata(part.id),
+                ...makeEncryptedContentMetadata(part.encrypted_content)
+              }
+            }
           })
           break
         }
@@ -1771,7 +1789,11 @@ const makeStreamResponse = Effect.fnUntraced(
       readonly id: string
       readonly name: string
       readonly functionCall?: {
-        emitted: boolean
+        readonly encryptedContent: string | null | undefined
+        // Set by argument completion; the call is emitted on item completion
+        // or flushed at the terminal response event.
+        arguments?: string
+        itemId?: string
       }
       readonly applyPatch?: {
         hasDiff: boolean
@@ -1819,6 +1841,73 @@ const makeStreamResponse = Effect.fnUntraced(
     ) as ReturnType<typeof OpenAiTool.WebSearch> | ReturnType<typeof OpenAiTool.WebSearchPreview> | undefined
 
     let toolParseError: AiError.AiError | undefined
+
+    const emitFunctionCall = Effect.fnUntraced(function*(parts: Array<Response.StreamPartEncoded>, call: {
+      readonly id: string
+      readonly name: string
+      readonly itemId: string | undefined
+      readonly arguments: string
+      readonly encryptedContent: string | null | undefined
+    }) {
+      hasToolCalls = true
+
+      const parsed = yield* Effect.try({
+        try: () => Tool.unsafeSecureJsonParse(call.arguments),
+        catch: (cause) =>
+          AiError.make({
+            module: "OpenAiLanguageModel",
+            method: "makeStreamResponse",
+            reason: new AiError.ToolParameterValidationError({
+              toolName: call.name,
+              description: `Failed securely JSON parse tool parameters: ${cause}`
+            })
+          })
+      }).pipe(Effect.result)
+      if (parsed._tag === "Failure") {
+        toolParseError ??= parsed.failure
+        parts.push({ type: "tool-params-end", id: call.id })
+        return
+      }
+      const params = yield* transformToolCallParams(options.tools, call.name, parsed.success)
+
+      parts.push({
+        type: "tool-params-end",
+        id: call.id
+      })
+
+      parts.push({
+        type: "tool-call",
+        id: call.id,
+        name: call.name,
+        params,
+        metadata: {
+          openai: {
+            ...makeItemIdMetadata(call.itemId),
+            ...makeEncryptedContentMetadata(call.encryptedContent)
+          }
+        }
+      })
+    })
+
+    // Emit calls whose arguments completed without a matching item completion,
+    // in output order, before the terminal finish part.
+    const flushFunctionCalls = Effect.fnUntraced(function*(parts: Array<Response.StreamPartEncoded>) {
+      const indexes = Object.keys(activeToolCalls).map(Number).sort((a, b) => a - b)
+      for (const index of indexes) {
+        const toolCall = activeToolCalls[index]
+        const functionCall = toolCall?.functionCall
+        if (Predicate.isUndefined(functionCall) || Predicate.isUndefined(functionCall.arguments)) continue
+        delete activeToolCalls[index]
+        yield* emitFunctionCall(parts, {
+          id: toolCall.id,
+          name: toolCall.name,
+          itemId: functionCall.itemId,
+          arguments: functionCall.arguments,
+          encryptedContent: functionCall.encryptedContent
+        })
+      }
+    })
+
     return stream.pipe(
       Stream.mapEffect(Effect.fnUntraced(function*(event) {
         const parts: Array<Response.StreamPartEncoded> = []
@@ -1847,6 +1936,7 @@ const makeStreamResponse = Effect.fnUntraced(
 
           case "response.completed":
           case "response.incomplete": {
+            yield* flushFunctionCalls(parts)
             parts.push({
               type: "finish",
               reason: InternalUtilities.resolveFinishReason(
@@ -1861,6 +1951,7 @@ const makeStreamResponse = Effect.fnUntraced(
           }
 
           case "response.failed": {
+            yield* flushFunctionCalls(parts)
             if (event.response.error) {
               parts.push({ type: "error", error: event.response.error })
             }
@@ -1971,7 +2062,7 @@ const makeStreamResponse = Effect.fnUntraced(
                 activeToolCalls[event.output_index] = {
                   id: event.item.call_id,
                   name: event.item.name,
-                  functionCall: { emitted: false }
+                  functionCall: { encryptedContent: event.item.encrypted_content }
                 }
                 parts.push({
                   type: "tool-params-start",
@@ -2176,49 +2267,16 @@ const makeStreamResponse = Effect.fnUntraced(
 
               case "function_call": {
                 const toolCall = activeToolCalls[event.output_index]
-                if (Predicate.isNotUndefined(toolCall?.functionCall?.emitted) && toolCall.functionCall.emitted) {
-                  delete activeToolCalls[event.output_index]
-                  break
-                }
                 delete activeToolCalls[event.output_index]
 
-                hasToolCalls = true
-
-                const toolName = event.item.name
-                const toolArgs = event.item.arguments
-
-                const parsed = yield* Effect.try({
-                  try: () => Tool.unsafeSecureJsonParse(toolArgs),
-                  catch: (cause) =>
-                    AiError.make({
-                      module: "OpenAiLanguageModel",
-                      method: "makeStreamResponse",
-                      reason: new AiError.ToolParameterValidationError({
-                        toolName,
-                        description: `Failed securely JSON parse tool parameters: ${cause}`
-                      })
-                    })
-                }).pipe(Effect.result)
-                if (parsed._tag === "Failure") {
-                  toolParseError ??= parsed.failure
-                  parts.push({ type: "tool-params-end", id: event.item.call_id })
-
-                  break
-                }
-                const toolParams = parsed.success
-                const params = yield* transformToolCallParams(options.tools, toolName, toolParams)
-
-                parts.push({
-                  type: "tool-params-end",
-                  id: event.item.call_id
-                })
-
-                parts.push({
-                  type: "tool-call",
+                // Some providers attach the reasoning signature only to the
+                // completed item, so the call is emitted here.
+                yield* emitFunctionCall(parts, {
                   id: event.item.call_id,
-                  name: toolName,
-                  params,
-                  metadata: { openai: makeItemIdMetadata(event.item.id) }
+                  name: event.item.name,
+                  itemId: event.item.id,
+                  arguments: event.item.arguments,
+                  encryptedContent: event.item.encrypted_content ?? toolCall?.functionCall?.encryptedContent
                 })
 
                 break
@@ -2491,48 +2549,10 @@ const makeStreamResponse = Effect.fnUntraced(
           }
 
           case "response.function_call_arguments.done": {
-            const toolCall = activeToolCalls[event.output_index]
-            if (
-              Predicate.isNotUndefined(toolCall?.functionCall) &&
-              !toolCall.functionCall.emitted
-            ) {
-              hasToolCalls = true
-
-              const parsed = yield* Effect.try({
-                try: () => Tool.unsafeSecureJsonParse(event.arguments),
-                catch: (cause) =>
-                  AiError.make({
-                    module: "OpenAiLanguageModel",
-                    method: "makeStreamResponse",
-                    reason: new AiError.ToolParameterValidationError({
-                      toolName: toolCall.name,
-                      description: `Failed securely JSON parse tool parameters: ${cause}`
-                    })
-                  })
-              }).pipe(Effect.result)
-              if (parsed._tag === "Failure") {
-                toolParseError ??= parsed.failure
-                parts.push({ type: "tool-params-end", id: toolCall.id })
-                toolCall.functionCall.emitted = true
-                break
-              }
-              const toolParams = parsed.success
-              const params = yield* transformToolCallParams(options.tools, toolCall.name, toolParams)
-
-              parts.push({
-                type: "tool-params-end",
-                id: toolCall.id
-              })
-
-              parts.push({
-                type: "tool-call",
-                id: toolCall.id,
-                name: toolCall.name,
-                params,
-                metadata: { openai: makeItemIdMetadata(event.item_id) }
-              })
-
-              toolCall.functionCall.emitted = true
+            const functionCall = activeToolCalls[event.output_index]?.functionCall
+            if (Predicate.isNotUndefined(functionCall)) {
+              functionCall.arguments = event.arguments
+              functionCall.itemId = event.item_id
             }
             break
           }
@@ -2990,7 +3010,7 @@ const getStatus = (
     | Prompt.ToolResultPart
 ): typeof OpenAiSchema.MessageStatus.Encoded | null => part.options.openai?.status ?? null
 const getEncryptedContent = (
-  part: Prompt.ReasoningPart
+  part: Prompt.ReasoningPart | Prompt.ToolCallPart
 ): string | null => part.options.openai?.encryptedContent ?? null
 
 const getImageDetail = (part: Prompt.FilePart): ImageDetail => part.options.openai?.imageDetail ?? "auto"
