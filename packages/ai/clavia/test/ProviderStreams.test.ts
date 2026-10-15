@@ -277,7 +277,7 @@ it.effect("replays streamed OpenAI function call encrypted content in received o
         delta: "Check"
       },
       { type: "response.output_item.done", output_index: 0, item: output[0] },
-      // Signature on the added item; the call is emitted on argument completion.
+      // Signature on both the added and the completed item.
       { type: "response.output_item.added", output_index: 1, item: output[1] },
       {
         type: "response.function_call_arguments.done",
@@ -295,8 +295,14 @@ it.effect("replays streamed OpenAI function call encrypted content in received o
         delta: "Check"
       },
       { type: "response.output_item.done", output_index: 2, item: output[2] },
-      // Signature only on the completed item; the call is emitted on item completion.
+      // Signature only on the completed item, after argument completion.
       { type: "response.output_item.added", output_index: 3, item: call("b") },
+      {
+        type: "response.function_call_arguments.done",
+        output_index: 3,
+        item_id: "fc_b",
+        arguments: "{\"path\":\"b\"}"
+      },
       { type: "response.output_item.done", output_index: 3, item: output[3] },
       {
         type: "response.completed",
@@ -358,6 +364,56 @@ it.effect("replays streamed OpenAI function call encrypted content in received o
         encrypted_content: "signed-b"
       }
     ])
+  }))
+
+it.effect("flushes streamed OpenAI function calls without item completion at the terminal event", () =>
+  Effect.gen(function*() {
+    const call = (id: string, encrypted_content?: string) => ({
+      type: "function_call",
+      id: `fc_${id}`,
+      call_id: id,
+      name: "read",
+      arguments: "",
+      ...(encrypted_content === undefined ? {} : { encrypted_content })
+    })
+    const events = [
+      ...[call("a", "signed-a"), call("b")].flatMap((item, output_index) => [
+        { type: "response.output_item.added", output_index, item },
+        {
+          type: "response.function_call_arguments.done",
+          output_index,
+          item_id: item.id,
+          arguments: JSON.stringify({ path: item.call_id })
+        }
+      ]),
+      {
+        type: "response.completed",
+        response: {
+          id: "response",
+          created_at: 1,
+          model: "fixture",
+          status: "completed",
+          output: [],
+          usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 }
+        }
+      }
+    ]
+    const { stream } = fixture("openai", "valid", false, "native", { events })
+    const parts = yield* Stream.runCollect(stream())
+    assert.deepStrictEqual(
+      parts.flatMap((part): Array<unknown> =>
+        part.type === "tool-call"
+          ? [{ id: part.id, params: part.params, metadata: part.metadata.openai }]
+          : part.type === "finish"
+          ? [part.reason]
+          : []
+      ),
+      [
+        { id: "a", params: { path: "a" }, metadata: { itemId: "fc_a", encryptedContent: "signed-a" } },
+        { id: "b", params: { path: "b" }, metadata: { itemId: "fc_b" } },
+        "tool-calls"
+      ]
+    )
   }))
 
 it.effect("rejects multiple compatible choices before sending a request", () =>
