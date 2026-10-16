@@ -8,15 +8,16 @@ This fork carries provider changes for Tardigrade. Consumers use upstream `effec
 
 ## Ported changes
 
-| Change                   | Packages                  | Contract                                                                                                                                                              |
-| ------------------------ | ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Deferred tool validation | Shared wrapper            | Effect encoded schemas check streamed calls before native response decoding. Return-mode failures remain identified errors; managed execution uses upstream behavior. |
-| Output limit handling    | All three                 | Preserve length completion and usage. OpenAI and Anthropic defer tool JSON parse errors until completion; normal malformed responses still fail.                      |
-| Raw usage                | OpenAI, OpenAI compatible | Preserve provider usage fields in finish metadata.                                                                                                                    |
-| Completion evidence      | OpenAI compatible         | Reject a final sentinel without a provider finish reason.                                                                                                             |
-| Reasoning replay         | OpenAI compatible         | Preserve the observed reasoning field and combine assistant reasoning, text, and calls during replay.                                                                 |
-| Shared metadata types    | OpenAI compatible         | Align approval metadata with the OpenAI provider declarations.                                                                                                        |
-| Function call signatures | OpenAI, OpenAI compatible | Replay `encrypted_content` from function call items with reasoning items in received order when `store` is false. The compatible provider declares the type.          |
+| Change                    | Packages                  | Contract                                                                                                                                                                                    |
+| ------------------------- | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Deferred tool validation  | Shared wrapper            | Effect encoded schemas check streamed calls before native response decoding. Return-mode failures remain identified errors; managed execution uses upstream behavior.                       |
+| Output limit handling     | All three                 | Preserve length completion and usage. OpenAI and Anthropic defer tool JSON parse errors until completion; normal malformed responses still fail.                                            |
+| Raw usage                 | OpenAI, OpenAI compatible | Preserve provider usage fields in finish metadata.                                                                                                                                          |
+| Completion evidence       | OpenAI compatible         | Reject a final sentinel without a provider finish reason.                                                                                                                                   |
+| Reasoning replay          | OpenAI compatible         | Preserve the observed reasoning field and combine assistant reasoning, text, and calls during replay.                                                                                       |
+| Shared metadata types     | OpenAI compatible         | Align approval metadata with the OpenAI provider declarations.                                                                                                                              |
+| Function call signatures  | OpenAI, OpenAI compatible | Replay `encrypted_content` from function call items with reasoning items in received order when `store` is false. The compatible provider declares the type.                                |
+| Reasoning text signatures | OpenAI                    | Keep signed `reasoning_text` content from reasoning items as `reasoningContent` metadata and replay it as `content`. Gateways serving Anthropic models return the thinking signature there. |
 
 ## Response format wrapper
 

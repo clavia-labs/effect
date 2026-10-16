@@ -2102,6 +2102,96 @@ describe("OpenAiLanguageModel", () => {
         ])
       ))
 
+    it.effect("replays signed reasoning text content", () =>
+      Effect.gen(function*() {
+        const signed = { type: "reasoning_text" as const, text: "Plan", signature: "thinking-signature" }
+        const model = OpenAiLanguageModel.model("vendor-reasoner", { store: false })
+        const first = yield* LanguageModel.generateText({
+          prompt: "Use the tool",
+          toolkit: TestToolkit
+        }).pipe(Effect.provide(model))
+
+        const reasoning = first.content.find((part) => part.type === "reasoning")
+        deepStrictEqual(reasoning?.metadata.openai, { itemId: "rs_1", reasoningContent: [signed] })
+
+        yield* LanguageModel.generateText({
+          prompt: Prompt.concat(Prompt.make("Use the tool"), Prompt.fromResponseParts(first.content)),
+          toolkit: TestToolkit
+        }).pipe(Effect.provide(model))
+
+        const requests = yield* MockHttpClient.requests
+        const replayBody = yield* getRequestBody(requests[1])
+        deepStrictEqual(replayBody.input[1], { type: "reasoning", id: "rs_1", summary: [], content: [signed] })
+      }).pipe(
+        Effect.provide([
+          makeTestLayer({
+            body: {
+              model: "vendor-reasoner" as any,
+              output: [
+                makeReasoningOutput([], {
+                  id: "rs_1",
+                  content: [{ type: "reasoning_text", text: "Plan", signature: "thinking-signature" }]
+                } as unknown as Partial<Generated.ReasoningItem>),
+                makeFunctionCall("TestTool", { input: "hello" }, { id: "fc_1", call_id: "call_1" })
+              ]
+            }
+          }),
+          TestToolkitLayer
+        ])
+      ))
+
+    it.effect("keeps streamed signed reasoning text content on reasoning end", () =>
+      Effect.gen(function*() {
+        const signed = { type: "reasoning_text" as const, text: "Plan", signature: "thinking-signature" }
+        const streamEvents = [
+          {
+            type: "response.created",
+            sequence_number: 1,
+            response: makeDefaultResponse({ id: "resp_signed", status: "in_progress", output: [] })
+          },
+          {
+            type: "response.output_item.added",
+            output_index: 0,
+            sequence_number: 2,
+            item: { type: "reasoning", id: "rs_signed", summary: [] }
+          },
+          {
+            type: "response.reasoning_summary_text.delta",
+            item_id: "rs_signed",
+            output_index: 0,
+            summary_index: 0,
+            sequence_number: 3,
+            delta: "Plan"
+          },
+          {
+            type: "response.output_item.done",
+            output_index: 0,
+            sequence_number: 4,
+            item: { type: "reasoning", id: "rs_signed", summary: [], content: [signed] }
+          },
+          {
+            type: "response.completed",
+            sequence_number: 5,
+            response: makeDefaultResponse({ id: "resp_signed", status: "completed", output: [] })
+          }
+        ] as unknown as ReadonlyArray<typeof Generated.ResponseStreamEvent.Type>
+
+        const parts = globalThis.Array.from(
+          yield* LanguageModel.streamText({ prompt: "reason" }).pipe(
+            Stream.runCollect,
+            Effect.provide(OpenAiLanguageModel.model("vendor-reasoner", { store: false })),
+            Effect.provide(makeStreamTestLayer(streamEvents))
+          )
+        )
+        const end = parts.find((part) => part.type === "reasoning-end")
+        deepStrictEqual(end?.metadata.openai, { itemId: "rs_signed", reasoningContent: [signed] })
+        const replayed = Prompt.fromResponseParts(parts).content[0]
+        deepStrictEqual(replayed.role === "assistant" ? replayed.content[0].options.openai : undefined, {
+          itemId: "rs_signed",
+          reasoningContent: [signed]
+        })
+      }))
+
     for (
       const { model, include } of [
         { model: "gpt-4o-mini", include: undefined },
