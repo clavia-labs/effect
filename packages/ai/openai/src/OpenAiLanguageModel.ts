@@ -175,6 +175,14 @@ declare module "effect/unstable/ai/Prompt" {
        * parameter.
        */
       readonly encryptedContent?: string | null
+      /**
+       * Signed reasoning text from the reasoning item's `content`. Gateways that
+       * serve Anthropic models carry the thinking signature here instead of in
+       * `encrypted_content`; it must be sent back verbatim to continue the reasoning.
+       */
+      readonly reasoningContent?:
+        | ReadonlyArray<{ readonly type: "reasoning_text"; readonly text: string; readonly signature?: string }>
+        | null
     } | null
   }
 
@@ -361,6 +369,14 @@ declare module "effect/unstable/ai/Response" {
        * Encrypted reasoning content that can be sent back in later requests.
        */
       readonly encryptedContent?: string | null
+      /**
+       * Signed reasoning text from the reasoning item's `content`. Gateways that
+       * serve Anthropic models carry the thinking signature here instead of in
+       * `encrypted_content`; it must be sent back verbatim to continue the reasoning.
+       */
+      readonly reasoningContent?:
+        | ReadonlyArray<{ readonly type: "reasoning_text"; readonly text: string; readonly signature?: string }>
+        | null
     } | null
   }
 
@@ -383,6 +399,14 @@ declare module "effect/unstable/ai/Response" {
        * Encrypted reasoning content that can be sent back in later requests.
        */
       readonly encryptedContent?: string | null
+      /**
+       * Signed reasoning text from the reasoning item's `content`. Gateways that
+       * serve Anthropic models carry the thinking signature here instead of in
+       * `encrypted_content`; it must be sent back verbatim to continue the reasoning.
+       */
+      readonly reasoningContent?:
+        | ReadonlyArray<{ readonly type: "reasoning_text"; readonly text: string; readonly signature?: string }>
+        | null
     } | null
   }
 
@@ -423,6 +447,14 @@ declare module "effect/unstable/ai/Response" {
        * Encrypted reasoning content that can be sent back in later requests.
        */
       readonly encryptedContent?: string
+      /**
+       * Signed reasoning text from the reasoning item's `content`. Gateways that
+       * serve Anthropic models carry the thinking signature here instead of in
+       * `encrypted_content`; it must be sent back verbatim to continue the reasoning.
+       */
+      readonly reasoningContent?:
+        | ReadonlyArray<{ readonly type: "reasoning_text"; readonly text: string; readonly signature?: string }>
+        | null
     } | null
   }
 
@@ -961,6 +993,7 @@ const prepareMessages = Effect.fnUntraced(
               case "reasoning": {
                 const id = getItemId(part)
                 const encryptedContent = getEncryptedContent(part)
+                const reasoningContent = getReasoningContent(part)
 
                 if (hasConversation && Predicate.isNotNull(id)) {
                   break
@@ -996,7 +1029,8 @@ const prepareMessages = Effect.fnUntraced(
                         summary: summaryParts,
                         ...(Predicate.isNotNull(encryptedContent)
                           ? { encrypted_content: encryptedContent }
-                          : undefined)
+                          : undefined),
+                        ...(Predicate.isNotNull(reasoningContent) ? { content: reasoningContent } : undefined)
                       }
 
                       messages.push(reasoningMessages[id])
@@ -1007,6 +1041,9 @@ const prepareMessages = Effect.fnUntraced(
                       // last summary part
                       if (Predicate.isNotNull(encryptedContent)) {
                         message.encrypted_content = encryptedContent
+                      }
+                      if (Predicate.isNotNull(reasoningContent)) {
+                        message.content = reasoningContent
                       }
                     }
                   }
@@ -1657,7 +1694,8 @@ const makeResponse = Effect.fnUntraced(
           const metadata = {
             openai: {
               ...makeItemIdMetadata(part.id),
-              ...makeEncryptedContentMetadata(part.encrypted_content)
+              ...makeEncryptedContentMetadata(part.encrypted_content),
+              ...makeReasoningContentMetadata(part.content)
             }
           }
           // If there are no summary parts, we have to add an empty one to
@@ -2404,7 +2442,8 @@ const makeStreamResponse = Effect.fnUntraced(
                       metadata: {
                         openai: {
                           ...makeItemIdMetadata(event.item.id),
-                          ...makeEncryptedContentMetadata(reasoningPart.encryptedContent)
+                          ...makeEncryptedContentMetadata(reasoningPart.encryptedContent),
+                          ...makeReasoningContentMetadata(event.item.content)
                         }
                       }
                     })
@@ -3013,6 +3052,13 @@ const getEncryptedContent = (
   part: Prompt.ReasoningPart | Prompt.ToolCallPart
 ): string | null => part.options.openai?.encryptedContent ?? null
 
+type ReasoningTextPart = NonNullable<typeof OpenAiSchema.ReasoningItem.Encoded["content"]>[number]
+
+const getReasoningContent = (part: Prompt.ReasoningPart): Array<ReasoningTextPart> | null => {
+  const content = part.options.openai?.reasoningContent
+  return Predicate.isNotNullish(content) && content.length > 0 ? [...content] : null
+}
+
 const getImageDetail = (part: Prompt.FilePart): ImageDetail => part.options.openai?.imageDetail ?? "auto"
 
 const getPromptCacheBreakpoint = (
@@ -3026,6 +3072,9 @@ const makeItemIdMetadata = (itemId: string | undefined) => Predicate.isNotUndefi
 
 const makeEncryptedContentMetadata = (encryptedContent: string | null | undefined) =>
   Predicate.isNotNullish(encryptedContent) ? { encryptedContent } : undefined
+
+const makeReasoningContentMetadata = (content: ReadonlyArray<ReasoningTextPart> | null | undefined) =>
+  Predicate.isNotNullish(content) && content.length > 0 ? { reasoningContent: content } : undefined
 
 const unsupportedSchemaError = (error: unknown, method: string): AiError.AiError =>
   AiError.make({

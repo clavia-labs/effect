@@ -157,7 +157,8 @@ export type SummaryTextContent = typeof SummaryTextContent.Type
 
 const ReasoningTextContent = Schema.Struct({
   type: Schema.Literal("reasoning_text"),
-  text: Schema.String
+  text: Schema.String,
+  signature: Schema.optionalKey(Schema.String)
 })
 
 const RefusalContent = Schema.Struct({
