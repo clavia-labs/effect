@@ -187,6 +187,14 @@ declare module "effect/unstable/ai/Prompt" {
        * parameter.
        */
       readonly encryptedContent?: string | null
+      /**
+       * Signed reasoning text from the reasoning item's `content`. Gateways that
+       * serve Anthropic models carry the thinking signature here instead of in
+       * `encrypted_content`; it must be sent back verbatim to continue the reasoning.
+       */
+      readonly reasoningContent?:
+        | ReadonlyArray<{ readonly type: "reasoning_text"; readonly text: string; readonly signature?: string }>
+        | null
     } | null
   }
 
@@ -361,6 +369,14 @@ declare module "effect/unstable/ai/Response" {
        * Encrypted reasoning content that can be sent back in later requests.
        */
       readonly encryptedContent?: string | null
+      /**
+       * Signed reasoning text from the reasoning item's `content`. Gateways that
+       * serve Anthropic models carry the thinking signature here instead of in
+       * `encrypted_content`; it must be sent back verbatim to continue the reasoning.
+       */
+      readonly reasoningContent?:
+        | ReadonlyArray<{ readonly type: "reasoning_text"; readonly text: string; readonly signature?: string }>
+        | null
     } | null
   }
 
@@ -384,6 +400,14 @@ declare module "effect/unstable/ai/Response" {
        * Encrypted reasoning content that can be sent back in later requests.
        */
       readonly encryptedContent?: string | null
+      /**
+       * Signed reasoning text from the reasoning item's `content`. Gateways that
+       * serve Anthropic models carry the thinking signature here instead of in
+       * `encrypted_content`; it must be sent back verbatim to continue the reasoning.
+       */
+      readonly reasoningContent?:
+        | ReadonlyArray<{ readonly type: "reasoning_text"; readonly text: string; readonly signature?: string }>
+        | null
     } | null
   }
 
@@ -424,6 +448,14 @@ declare module "effect/unstable/ai/Response" {
        * Encrypted reasoning content that can be sent back in later requests.
        */
       readonly encryptedContent?: string
+      /**
+       * Signed reasoning text from the reasoning item's `content`. Gateways that
+       * serve Anthropic models carry the thinking signature here instead of in
+       * `encrypted_content`; it must be sent back verbatim to continue the reasoning.
+       */
+      readonly reasoningContent?:
+        | ReadonlyArray<{ readonly type: "reasoning_text"; readonly text: string; readonly signature?: string }>
+        | null
     } | null
   }
 

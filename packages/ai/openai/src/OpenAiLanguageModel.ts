@@ -180,7 +180,9 @@ declare module "effect/unstable/ai/Prompt" {
        * serve Anthropic models carry the thinking signature here instead of in
        * `encrypted_content`; it must be sent back verbatim to continue the reasoning.
        */
-      readonly reasoningContent?: ReadonlyArray<ReasoningTextPart> | null
+      readonly reasoningContent?:
+        | ReadonlyArray<{ readonly type: "reasoning_text"; readonly text: string; readonly signature?: string }>
+        | null
     } | null
   }
 
@@ -372,7 +374,9 @@ declare module "effect/unstable/ai/Response" {
        * serve Anthropic models carry the thinking signature here instead of in
        * `encrypted_content`; it must be sent back verbatim to continue the reasoning.
        */
-      readonly reasoningContent?: ReadonlyArray<ReasoningTextPart> | null
+      readonly reasoningContent?:
+        | ReadonlyArray<{ readonly type: "reasoning_text"; readonly text: string; readonly signature?: string }>
+        | null
     } | null
   }
 
@@ -400,7 +404,9 @@ declare module "effect/unstable/ai/Response" {
        * serve Anthropic models carry the thinking signature here instead of in
        * `encrypted_content`; it must be sent back verbatim to continue the reasoning.
        */
-      readonly reasoningContent?: ReadonlyArray<ReasoningTextPart> | null
+      readonly reasoningContent?:
+        | ReadonlyArray<{ readonly type: "reasoning_text"; readonly text: string; readonly signature?: string }>
+        | null
     } | null
   }
 
@@ -446,7 +452,9 @@ declare module "effect/unstable/ai/Response" {
        * serve Anthropic models carry the thinking signature here instead of in
        * `encrypted_content`; it must be sent back verbatim to continue the reasoning.
        */
-      readonly reasoningContent?: ReadonlyArray<ReasoningTextPart> | null
+      readonly reasoningContent?:
+        | ReadonlyArray<{ readonly type: "reasoning_text"; readonly text: string; readonly signature?: string }>
+        | null
     } | null
   }
 
