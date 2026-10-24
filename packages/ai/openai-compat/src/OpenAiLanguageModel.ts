@@ -31,7 +31,7 @@ import * as AiError from "effect/unstable/ai/AiError"
 import * as LanguageModel from "effect/unstable/ai/LanguageModel"
 import * as AiModel from "effect/unstable/ai/Model"
 import { toCodecOpenAI } from "effect/unstable/ai/OpenAiStructuredOutput"
-import type * as Prompt from "effect/unstable/ai/Prompt"
+import * as Prompt from "effect/unstable/ai/Prompt"
 import type * as Response from "effect/unstable/ai/Response"
 import * as Tool from "effect/unstable/ai/Tool"
 import type * as HttpClientRequest from "effect/unstable/http/HttpClientRequest"
@@ -827,6 +827,15 @@ const prepareMessages = Effect.fnUntraced(
               }
 
               case "file": {
+                if (Prompt.isFileStream(part.data)) {
+                  return yield* AiError.make({
+                    module: "OpenAiLanguageModel",
+                    method: "prepareMessages",
+                    reason: new AiError.InvalidRequestError({
+                      description: "Streamed files require an HTTP Responses provider"
+                    })
+                  })
+                }
                 if (part.mediaType.startsWith("image/")) {
                   const detail = getImageDetail(part)
                   const mediaType = part.mediaType === "image/*" ? "image/jpeg" : part.mediaType

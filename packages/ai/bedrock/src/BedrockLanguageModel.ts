@@ -23,9 +23,10 @@ import * as Option from "effect/Option"
 import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
 import * as Stream from "effect/Stream"
-import type { Prompt, Response } from "effect/unstable/ai"
+import type { Response } from "effect/unstable/ai"
 import * as AiError from "effect/unstable/ai/AiError"
 import * as LanguageModel from "effect/unstable/ai/LanguageModel"
+import * as Prompt from "effect/unstable/ai/Prompt"
 import * as Tool from "effect/unstable/ai/Tool"
 
 const document: Schema.Codec<NativeJson> = Schema.suspend(() =>
@@ -418,6 +419,7 @@ const escapeXmlText = (value: string): string =>
 const escapeXml = (value: string): string => escapeXmlText(value).replace(/"/g, "&quot;").replace(/'/g, "&apos;")
 
 const bedrockFile = (part: Prompt.FilePart): { image: ImageBlock } | { document: DocumentBlock } => {
+  if (Prompt.isFileStream(part.data)) throw inputError("Streamed files require an HTTP Responses provider")
   if (part.data instanceof URL || (typeof part.data === "string" && /^https?:\/\//i.test(part.data))) {
     throw inputError("Bedrock file content requires bytes or base64 data")
   }

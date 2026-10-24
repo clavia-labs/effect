@@ -36,6 +36,12 @@ import * as Tool from "effect/unstable/ai/Tool"
 import type * as HttpClientRequest from "effect/unstable/http/HttpClientRequest"
 import type * as HttpClientResponse from "effect/unstable/http/HttpClientResponse"
 import * as Generated from "./Generated.ts"
+import {
+  attachFileStream,
+  copyFileStream,
+  DEFAULT_REQUEST_BODY_CHUNK_BYTES,
+  streamedRequestBody
+} from "./internal/requestBody.ts"
 import * as InternalUtilities from "./internal/utilities.ts"
 import { OpenAiClient } from "./OpenAiClient.ts"
 import * as OpenAiSchema from "./OpenAiSchema.ts"
@@ -626,10 +632,15 @@ export const make = Effect.fnUntraced(function*({ model, config: providerConfig 
       readonly config: typeof Config.Service
       readonly options: LanguageModel.ProviderOptions
       readonly toolNameMapper: Tool.NameMapper<Tools>
-    }): Effect.fn.Return<typeof OpenAiSchema.CreateResponse.Encoded, AiError.AiError> {
+    }): Effect.fn.Return<
+      { readonly request: typeof OpenAiSchema.CreateResponse.Encoded; readonly streamed: boolean },
+      AiError.AiError
+    > {
       const include = new Set<typeof OpenAiSchema.IncludeEnum.Encoded>(config.include ?? [])
       const capabilities = getModelCapabilities(config.model as string)
+      const files = new Set<object>()
       const messages = yield* prepareMessages({
+        files,
         config,
         options,
         capabilities,
@@ -658,7 +669,7 @@ export const make = Effect.fnUntraced(function*({ model, config: providerConfig 
       if (tools) request.tools = tools
       if (toolChoice) request.tool_choice = toolChoice
       if (options.previousResponseId) request.previous_response_id = options.previousResponseId
-      return request
+      return { request, streamed: files.size > 0 }
     }
   )
 
@@ -668,9 +679,14 @@ export const make = Effect.fnUntraced(function*({ model, config: providerConfig 
       function*(options) {
         const config = yield* makeConfig
         const toolNameMapper = new Tool.NameMapper(options.tools)
-        const request = yield* makeRequest({ config, options, toolNameMapper })
+        const { request, streamed } = yield* makeRequest({ config, options, toolNameMapper })
         annotateRequest(options.span, request)
-        const [rawResponse, response] = yield* client.createResponse(request)
+        const [rawResponse, response] = yield* client.createResponse(
+          request,
+          streamed
+            ? streamedRequestBody(request, client.requestBodyChunkBytes ?? DEFAULT_REQUEST_BODY_CHUNK_BYTES)
+            : undefined
+        )
         annotateResponse(options.span, rawResponse)
         return yield* makeResponse({
           options,
@@ -684,9 +700,17 @@ export const make = Effect.fnUntraced(function*({ model, config: providerConfig 
       function*(options) {
         const config = yield* makeConfig
         const toolNameMapper = new Tool.NameMapper(options.tools)
-        const request = yield* makeRequest({ config, options, toolNameMapper })
+        const { request, streamed } = yield* makeRequest({ config, options, toolNameMapper })
         annotateRequest(options.span, request)
-        const [response, stream] = yield* client.createResponseStream(request)
+        const [response, stream] = yield* client.createResponseStream(
+          request,
+          streamed
+            ? streamedRequestBody(
+              { ...request, stream: true },
+              client.requestBodyChunkBytes ?? DEFAULT_REQUEST_BODY_CHUNK_BYTES
+            )
+            : undefined
+        )
         return yield* makeStreamResponse({
           stream,
           response,
@@ -789,6 +813,7 @@ const getSystemMessageMode = (model: string): "system" | "developer" =>
 
 const prepareMessages = Effect.fnUntraced(
   function*<Tools extends ReadonlyArray<Tool.Any>>({
+    files,
     config,
     options,
     capabilities,
@@ -799,6 +824,7 @@ const prepareMessages = Effect.fnUntraced(
     readonly options: LanguageModel.ProviderOptions
     readonly include: Set<typeof OpenAiSchema.IncludeEnum.Encoded>
     readonly capabilities: ModelCapabilities
+    readonly files: Set<object>
     readonly toolNameMapper: Tool.NameMapper<Tools>
   }): Effect.fn.Return<ReadonlyArray<typeof OpenAiSchema.InputItem.Encoded>, AiError.AiError> {
     const processedApprovalIds = new Set<string>()
@@ -873,6 +899,43 @@ const prepareMessages = Effect.fnUntraced(
               }
 
               case "file": {
+                if (Prompt.isFileStream(part.data)) {
+                  if (part.mediaType.startsWith("image/")) {
+                    const mediaType = part.mediaType === "image/*" ? "image/jpeg" : part.mediaType
+                    const block = attachFileStream(
+                      {
+                        type: "input_image" as const,
+                        image_url: `data:${mediaType};base64,`,
+                        detail: getImageDetail(part)
+                      },
+                      "image_url",
+                      part.data
+                    )
+                    files.add(block)
+                    content.push(block)
+                  } else if (part.mediaType === "application/pdf") {
+                    const block = attachFileStream(
+                      {
+                        type: "input_file" as const,
+                        filename: part.fileName ?? `part-${index}.pdf`,
+                        file_data: "data:application/pdf;base64,"
+                      },
+                      "file_data",
+                      part.data
+                    )
+                    files.add(block)
+                    content.push(block)
+                  } else {
+                    return yield* AiError.make({
+                      module: "OpenAiLanguageModel",
+                      method: "prepareMessages",
+                      reason: new AiError.InvalidRequestError({
+                        description: `Detected unsupported media type for streamed file: '${part.mediaType}'`
+                      })
+                    })
+                  }
+                  break
+                }
                 if (part.mediaType.startsWith("image/")) {
                   const detail = getImageDetail(part)
                   const mediaType = part.mediaType === "image/*" ? "image/jpeg" : part.mediaType
@@ -1198,7 +1261,7 @@ const prepareMessages = Effect.fnUntraced(
               type: "function_call_output",
               call_id: part.id,
               output: ToolResult.isContent(part.result)
-                ? yield* toolContent(part.result, { config, options, capabilities, include, toolNameMapper })
+                ? yield* toolContent(part.result, { files, config, options, capabilities, include, toolNameMapper })
                 : ToolResult.text(part.result),
               ...(Predicate.isNotNull(status) ? { status } : {})
             })
@@ -1228,6 +1291,17 @@ const toolContent = Effect.fnUntraced(function*<Tools extends ReadonlyArray<Tool
   const message = encoded[0]
   const content = message !== undefined && "content" in message ? message.content : []
   return yield* Schema.decodeUnknownEffect(Schema.Array(OpenAiSchema.InputContent))(content).pipe(
+    Effect.tap((decoded) =>
+      Effect.sync(() => {
+        for (let index = 0; index < content.length; index++) {
+          const source = content[index]
+          const target = decoded[index]
+          if (
+            source !== null && typeof source === "object" && target !== null && typeof target === "object"
+          ) copyFileStream(source, target)
+        }
+      })
+    ),
     Effect.mapError((cause) =>
       AiError.make({
         module: "OpenAiLanguageModel",

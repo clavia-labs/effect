@@ -33,6 +33,8 @@ import * as HttpClientRequest from "effect/unstable/http/HttpClientRequest"
 import * as HttpClientResponse from "effect/unstable/http/HttpClientResponse"
 import * as Socket from "effect/unstable/socket/Socket"
 import * as Errors from "./internal/errors.ts"
+import { DEFAULT_REQUEST_BODY_CHUNK_BYTES } from "./internal/requestBody.ts"
+export { DEFAULT_REQUEST_BODY_CHUNK_BYTES, getRequestBody, setRequestBody } from "./internal/requestBody.ts"
 import { OpenAiConfig } from "./OpenAiConfig.ts"
 import * as OpenAiSchema from "./OpenAiSchema.ts"
 
@@ -55,12 +57,14 @@ export interface Service {
    * The transformed HTTP client used by this service.
    */
   readonly client: HttpClient.HttpClient
+  readonly requestBodyChunkBytes?: number
 
   /**
    * Create a response using the OpenAI responses endpoint.
    */
   readonly createResponse: (
-    options: typeof OpenAiSchema.CreateResponse.Encoded
+    options: typeof OpenAiSchema.CreateResponse.Encoded,
+    body?: HttpBody.HttpBody
   ) => Effect.Effect<
     readonly [body: typeof OpenAiSchema.Response.Type, response: HttpClientResponse.HttpClientResponse],
     AiError.AiError
@@ -70,7 +74,8 @@ export interface Service {
    * Create a streaming response using the OpenAI responses endpoint.
    */
   readonly createResponseStream: (
-    options: Omit<typeof OpenAiSchema.CreateResponse.Encoded, "stream">
+    options: Omit<typeof OpenAiSchema.CreateResponse.Encoded, "stream">,
+    body?: HttpBody.HttpBody
   ) => Effect.Effect<
     readonly [
       response: HttpClientResponse.HttpClientResponse,
@@ -121,6 +126,13 @@ export class OpenAiClient extends Context.Service<OpenAiClient, Service>()(
  * @since 4.0.0
  */
 export type Options = {
+  /**
+   * Maximum input bytes encoded per streamed request-body chunk.
+   *
+   * @default 49152
+   */
+  readonly requestBodyChunkBytes?: number | undefined
+
   /**
    * The OpenAI API key.
    */
@@ -194,6 +206,10 @@ export const make = Effect.fnUntraced(
   ): Effect.fn.Return<Service, never, HttpClient.HttpClient> {
     const baseClient = yield* HttpClient.HttpClient
     const apiUrl = options.apiUrl ?? "https://api.openai.com/v1"
+    const requestBodyChunkBytes = options.requestBodyChunkBytes ?? DEFAULT_REQUEST_BODY_CHUNK_BYTES
+    if (!Number.isSafeInteger(requestBodyChunkBytes) || requestBodyChunkBytes < 1) {
+      return yield* Effect.die(new RangeError("requestBodyChunkBytes must be a positive safe integer"))
+    }
 
     const httpClient = baseClient.pipe(
       HttpClient.mapRequest(Function.flow(
@@ -232,7 +248,8 @@ export const make = Effect.fnUntraced(
     const decodeResponse = HttpClientResponse.schemaBodyJson(OpenAiSchema.Response)
 
     const createResponse = (
-      payload: typeof OpenAiSchema.CreateResponse.Encoded
+      payload: typeof OpenAiSchema.CreateResponse.Encoded,
+      body?: HttpBody.HttpBody
     ): Effect.Effect<
       [body: typeof OpenAiSchema.Response.Type, response: HttpClientResponse.HttpClientResponse],
       AiError.AiError
@@ -240,7 +257,7 @@ export const make = Effect.fnUntraced(
       resolveHttpClient.pipe(
         Effect.flatMap((client) =>
           client.execute(HttpClientRequest.post("/responses", {
-            body: HttpBody.jsonUnsafe(payload)
+            body: body ?? HttpBody.jsonUnsafe(payload)
           })).pipe(
             Effect.flatMap((response) =>
               decodeResponse(response).pipe(
@@ -288,14 +305,20 @@ export const make = Effect.fnUntraced(
       return [response, stream]
     }
 
-    const createResponseStream: Service["createResponseStream"] = (payload) =>
+    const createResponseStream: Service["createResponseStream"] = (payload, body) =>
       Effect.contextWith((services) => {
         const socket = Context.getOrUndefined(services, OpenAiSocket)
-        if (socket) return socket.createResponseStream(payload)
+        if (socket) {
+          return body === undefined ? socket.createResponseStream(payload) : Effect.fail(AiError.make({
+            module: "OpenAiClient",
+            method: "createResponseStream",
+            reason: new AiError.InvalidRequestError({ description: "Streamed request bodies require HTTP transport" })
+          }))
+        }
         return resolveHttpClient.pipe(
           Effect.flatMap((client) =>
             client.execute(HttpClientRequest.post("/responses", {
-              body: HttpBody.jsonUnsafe({ ...payload, stream: true })
+              body: body ?? HttpBody.jsonUnsafe({ ...payload, stream: true })
             })).pipe(
               Effect.map(buildResponseStream),
               Effect.catchTag(
@@ -330,6 +353,7 @@ export const make = Effect.fnUntraced(
 
     return OpenAiClient.of({
       client: httpClient,
+      requestBodyChunkBytes,
       createResponse,
       createResponseStream,
       createEmbedding
