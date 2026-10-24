@@ -1,7 +1,7 @@
 import { assert, describe, it } from "@effect/vitest"
 import { OpenAiClient, OpenAiLanguageModel } from "@tardie/ai-openai"
 import { attachFileStream, streamedRequestBody } from "@tardie/ai-openai/internal/requestBody"
-import { Effect, Layer, Schema, Stream } from "effect"
+import { Effect, Layer, Stream } from "effect"
 import { LanguageModel, Prompt } from "effect/unstable/ai"
 import { HttpBody, HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http"
 
@@ -20,9 +20,12 @@ const response = {
   }
 }
 const frames = `data: ${JSON.stringify({ type: "response.completed", sequence_number: 0, response })}\n\n`
-const encoder = new TextEncoder()
 
-const fixture = (transform = (request: HttpClientRequest.HttpClientRequest) => request, chunkBytes = 5) => {
+const fixture = (
+  transform = (request: HttpClientRequest.HttpClientRequest) => request,
+  chunkBytes = 5,
+  streamFiles = true
+) => {
   const bodies: Array<string> = []
   const tags: Array<string> = []
   const lengths: Array<number> = []
@@ -44,7 +47,7 @@ const fixture = (transform = (request: HttpClientRequest.HttpClientRequest) => r
     })
   )
   const layer = OpenAiLanguageModel.layer({ model: "fixture" }).pipe(
-    Layer.provide(OpenAiClient.layer({ requestBodyChunkBytes: chunkBytes })),
+    Layer.provide(OpenAiClient.layer({ requestBodyChunkBytes: chunkBytes, streamFiles })),
     Layer.provide(Layer.succeed(HttpClient.HttpClient, http))
   )
   const run = (prompt: Prompt.Prompt) =>
@@ -57,30 +60,16 @@ describe("streamed file requests", () => {
     Effect.gen(function*() {
       const images = Array.from({ length: 10 }, (_, index) =>
         Uint8Array.from({ length: 127 + index }, (_, at) => (at + index) % 256))
-      let pulls = 0
-      const data = (bytes: Uint8Array, streamed: boolean) =>
-        streamed
-          ? Prompt.fileStream(
-            Stream.fromEffect(Effect.sync(() => {
-              pulls++
-              return bytes
-            })).pipe(
-              Stream.flatMap((value) =>
-                Stream.fromIterable([value.subarray(0, 1), value.subarray(1, 3), value.subarray(3)])
-              )
-            )
-          )
-          : bytes
-      const prompt = (streamed: boolean) =>
+      const prompt = () =>
         Prompt.make([
           {
             role: "user",
             content: [
               Prompt.textPart({ text: "Unicode 한글, quote \" and newline\n" }),
               ...images.map((bytes) =>
-                Prompt.filePart({ mediaType: "image/png", data: data(bytes, streamed) })
+                Prompt.filePart({ mediaType: "image/png", data: bytes })
               ),
-              Prompt.filePart({ mediaType: "application/pdf", fileName: "a\"b.pdf", data: data(images[0], streamed) })
+              Prompt.filePart({ mediaType: "application/pdf", fileName: "a\"b.pdf", data: images[0] })
             ]
           },
           {
@@ -97,31 +86,30 @@ describe("streamed file requests", () => {
                 providerExecuted: false,
                 result: {
                   type: "content",
-                  value: [Prompt.filePart({ mediaType: "image/jpeg", data: data(images[0], streamed) })]
+                  value: [Prompt.filePart({ mediaType: "image/jpeg", data: images[0] })]
                 }
               })
             ]
           }
         ])
+      const buffered = fixture(undefined, 5, false)
       const test = fixture()
-      const source = prompt(true)
-      assert.strictEqual(pulls, 0)
-      yield* test.run(prompt(false))
-      yield* test.run(source)
-      assert.deepStrictEqual(test.tags, ["Uint8Array", "Stream"])
-      assert.strictEqual(test.bodies[1], test.bodies[0])
-      assert.strictEqual(pulls, 12)
-      assert.strictEqual(JSON.parse(test.bodies[1]).stream, true)
+      yield* buffered.run(prompt())
+      yield* test.run(prompt())
+      assert.deepStrictEqual(buffered.tags, ["Uint8Array"])
+      assert.deepStrictEqual(test.tags, ["Stream"])
+      assert.strictEqual(test.bodies[0], buffered.bodies[0])
+      assert.strictEqual(JSON.parse(test.bodies[0]).stream, true)
     }))
 
   it.effect("preserves cold sources through metadata profiling and retry rebuilds", () =>
     Effect.gen(function*() {
       let pulls = 0
       const bytes = new Uint8Array([0, 1, 2, 253, 254, 255])
-      const file = Prompt.fileStream(Stream.fromEffect(Effect.sync(() => {
+      const file = Stream.fromEffect(Effect.sync(() => {
         pulls++
         return bytes
-      })))
+      }))
       const block = attachFileStream({ type: "input_image", image_url: "data:image/png;base64," }, "image_url", file)
       const original = HttpClientRequest.post("https://fixture.invalid/responses", {
         body: streamedRequestBody({ input: [{ content: [block] }], service_tier: "flex" }, 2)
@@ -157,21 +145,21 @@ describe("streamed file requests", () => {
   it.effect("does not consume a later file before the current file finishes", () =>
     Effect.gen(function*() {
       let first = 0, second = 0, finalized = 0
-      const block = (source: Prompt.FileStream) =>
+      const block = (source: Stream.Stream<Uint8Array, Error>) =>
         attachFileStream({ image_url: "data:image/png;base64," }, "image_url", source)
       const body = streamedRequestBody([
-        block(Prompt.fileStream(
+        block(
           Stream.fromEffect(Effect.sync(() => {
             first++
             return new Uint8Array(32)
           })).pipe(Stream.ensuring(Effect.sync(() => {
             finalized++
           })))
-        )),
-        block(Prompt.fileStream(Stream.fromEffect(Effect.sync(() => {
+        ),
+        block(Stream.fromEffect(Effect.sync(() => {
           second++
           return new Uint8Array(32)
-        }))))
+        })))
       ], 3)
       assert.strictEqual(first, 0)
       yield* body.stream.pipe(Stream.takeUntil((bytes) => new TextDecoder().decode(bytes) === "AAAA"), Stream.runDrain)
@@ -180,33 +168,28 @@ describe("streamed file requests", () => {
       assert.strictEqual(finalized, 1)
     }))
 
-  it.effect("rejects streamed files for legacy custom clients before consuming sources", () =>
+  it.effect("rejects streaming for legacy custom clients before dispatch", () =>
     Effect.gen(function*() {
-      let reads = 0, calls = 0
+      let calls = 0
       const legacy = OpenAiClient.OpenAiClient.of({
+        streamFiles: true,
         client: HttpClient.make(() => Effect.die("Unexpected HTTP request")),
         createResponse: () =>
           Effect.sync(() => {
             calls++
-          }).pipe(Effect.andThen(Effect.die("Unexpected response call"))),
+          }).pipe(Effect.andThen(Effect.die("Unexpected response"))),
         createResponseStream: () =>
           Effect.sync(() => {
             calls++
-          }).pipe(Effect.andThen(Effect.die("Unexpected stream call"))),
-        createEmbedding: () => Effect.die("Unexpected embedding call")
+          }).pipe(Effect.andThen(Effect.die("Unexpected stream"))),
+        createEmbedding: () => Effect.die("Unexpected embedding")
       })
       const layer = OpenAiLanguageModel.layer({ model: "fixture" }).pipe(
         Layer.provide(Layer.succeed(OpenAiClient.OpenAiClient, legacy))
       )
       const prompt = Prompt.make([{
         role: "user",
-        content: [Prompt.filePart({
-          mediaType: "image/png",
-          data: Prompt.fileStream(Stream.fromEffect(Effect.sync(() => {
-            reads++
-            return new Uint8Array([1, 2, 3])
-          })))
-        })]
+        content: [Prompt.filePart({ mediaType: "image/png", data: new Uint8Array([1, 2, 3]) })]
       }])
       const unary = yield* LanguageModel.generateText({ prompt }).pipe(Effect.provide(layer), Effect.result)
       const streaming = yield* LanguageModel.streamText({ prompt }).pipe(
@@ -216,35 +199,31 @@ describe("streamed file requests", () => {
       )
       assert.strictEqual(unary._tag, "Failure")
       assert.strictEqual(streaming._tag, "Failure")
-      assert.strictEqual(reads, 0)
       assert.strictEqual(calls, 0)
     }))
 
-  it.effect("rejects streamed WebSocket requests before consuming file sources", () =>
+  it.effect("rejects streamed WebSocket requests before dispatch", () =>
     Effect.gen(function*() {
-      let reads = 0
-      const file = Prompt.fileStream(Stream.fromEffect(Effect.sync(() => {
-        reads++
-        return new Uint8Array([1, 2, 3])
-      })))
       const test = fixture()
       const result = yield* test.run(
-        Prompt.make([{ role: "user", content: [Prompt.filePart({ mediaType: "image/png", data: file })] }])
+        Prompt.make([{
+          role: "user",
+          content: [Prompt.filePart({ mediaType: "image/png", data: new Uint8Array([1, 2, 3]) })]
+        }])
       ).pipe(
         Effect.provideService(OpenAiClient.OpenAiSocket, {
-          createResponseStream: () => Effect.die("Socket must not receive streamed bytes")
+          createResponseStream: () => Effect.die("Unexpected socket call")
         }),
         Effect.result
       )
       assert.strictEqual(result._tag, "Failure")
-      assert.strictEqual(reads, 0)
       assert.deepStrictEqual(test.bodies, [])
     }))
 
   it.effect("normalizes optional metadata before adding fields in a request transform", () =>
     Effect.gen(function*() {
       const bytes = new Uint8Array([1, 2, 3])
-      const source = Prompt.fileStream(Stream.succeed(bytes))
+      const source = Stream.succeed(bytes)
       const streamed = attachFileStream(
         { type: "input_image", image_url: "data:image/png;base64," },
         "image_url",
@@ -285,42 +264,18 @@ describe("streamed file requests", () => {
       const failed = attachFileStream(
         { image_url: "data:image/png;base64," },
         "image_url",
-        Prompt.fileStream(Stream.fail(new Error("storage failed")))
+        Stream.fail(new Error("storage failed"))
       )
       const later = attachFileStream(
         { image_url: "data:image/png;base64," },
         "image_url",
-        Prompt.fileStream(Stream.fromEffect(Effect.sync(() => {
+        Stream.fromEffect(Effect.sync(() => {
           second++
           return new Uint8Array(1)
-        })))
+        }))
       )
       const result = yield* Stream.runCollect(streamedRequestBody([failed, later], 7).stream).pipe(Effect.result)
       assert.strictEqual(result._tag, "Failure")
       assert.strictEqual(second, 0)
-    }))
-
-  it.effect("rejects persistence of runtime-only files", () =>
-    Effect.gen(function*() {
-      const part = Prompt.filePart({
-        mediaType: "image/png",
-        data: Prompt.fileStream(Stream.succeed(encoder.encode("bytes")))
-      })
-      const user = Prompt.make([{ role: "user", content: [part] }])
-      const tool = Prompt.make([{
-        role: "tool",
-        content: [
-          Prompt.toolResultPart({
-            id: "call",
-            name: "read",
-            isFailure: false,
-            providerExecuted: false,
-            result: { type: "content", value: [part] }
-          })
-        ]
-      }])
-      assert.strictEqual((yield* Schema.encodeEffect(Prompt.Prompt)(user).pipe(Effect.result))._tag, "Failure")
-      assert.strictEqual((yield* Schema.encodeEffect(Prompt.Prompt)(tool).pipe(Effect.result))._tag, "Failure")
-      assert.throws(() => JSON.stringify(user), /runtime-only/)
     }))
 })

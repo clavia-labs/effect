@@ -44,14 +44,9 @@ for (const target of targets) {
 
 if (action === "check") {
   const consumer = realpathSync(mkdtempSync(join(tmpdir(), "tardie-ai-consumer-")))
-  const runtime = join(root, "packages/effect")
-  const runtimeManifest = JSON.parse(readFileSync(join(runtime, "package.json"), "utf8"))
-  assert.equal(runtimeManifest.version, effectVersion)
-  run("pnpm", ["pack", "--pack-destination", consumer], runtime)
-  const runtimeFile = `./effect-${effectVersion}.tgz`
   writeFileSync(join(consumer, "package.json"), JSON.stringify({
     name: "clavia-package-check", private: true, type: "module",
-    dependencies: { effect: runtimeFile }
+    dependencies: { effect: effectVersion }
   }))
   for (const target of targets) cpSync(target.file, join(consumer, basename(target.file)))
   run("npm", ["install", "--ignore-scripts", "--no-audit", "--no-fund", ...providers.map((target) => `./${basename(target.file)}`), `@effect/vitest@${effectVersion}`, "vitest@5.0.0", "typescript@7.0.2", "@types/node@24"], consumer)

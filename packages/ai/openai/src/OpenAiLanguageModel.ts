@@ -638,7 +638,7 @@ export const make = Effect.fnUntraced(function*({ model, config: providerConfig 
     > {
       const include = new Set<typeof OpenAiSchema.IncludeEnum.Encoded>(config.include ?? [])
       const capabilities = getModelCapabilities(config.model as string)
-      const files = { streamed: false }
+      const files = { enabled: client.streamFiles === true, streamed: false }
       const messages = yield* prepareMessages({
         files,
         config,
@@ -837,7 +837,7 @@ const prepareMessages = Effect.fnUntraced(
     readonly options: LanguageModel.ProviderOptions
     readonly include: Set<typeof OpenAiSchema.IncludeEnum.Encoded>
     readonly capabilities: ModelCapabilities
-    readonly files: { streamed: boolean }
+    readonly files: { enabled: boolean; streamed: boolean }
     readonly toolNameMapper: Tool.NameMapper<Tools>
   }): Effect.fn.Return<ReadonlyArray<typeof OpenAiSchema.InputItem.Encoded>, AiError.AiError> {
     const processedApprovalIds = new Set<string>()
@@ -916,7 +916,8 @@ const prepareMessages = Effect.fnUntraced(
                   const detail = getImageDetail(part)
                   const mediaType = part.mediaType === "image/*" ? "image/jpeg" : part.mediaType
 
-                  if (Prompt.isFileStream(part.data)) {
+                  // TODO: Use native lazy file inputs when Effect supports them; inline bytes remain hydrated for the request.
+                  if (files.enabled && part.data instanceof Uint8Array) {
                     files.streamed = true
                     content.push(attachFileStream(
                       {
@@ -925,7 +926,7 @@ const prepareMessages = Effect.fnUntraced(
                         detail
                       },
                       "image_url",
-                      part.data
+                      Stream.succeed(part.data)
                     ))
                   } else if (typeof part.data === "string" && isFileId(part.data, config)) {
                     content.push({ type: "input_image", file_id: part.data, detail })
@@ -940,7 +941,7 @@ const prepareMessages = Effect.fnUntraced(
                     content.push({ type: "input_image", image_url: imageUrl, detail })
                   }
                 } else if (part.mediaType === "application/pdf") {
-                  if (Prompt.isFileStream(part.data)) {
+                  if (files.enabled && part.data instanceof Uint8Array) {
                     files.streamed = true
                     content.push(attachFileStream(
                       {
@@ -949,18 +950,13 @@ const prepareMessages = Effect.fnUntraced(
                         file_data: "data:application/pdf;base64,"
                       },
                       "file_data",
-                      part.data
+                      Stream.succeed(part.data)
                     ))
-                  }
-                  if (typeof part.data === "string" && isFileId(part.data, config)) {
+                  } else if (typeof part.data === "string" && isFileId(part.data, config)) {
                     content.push({ type: "input_file", file_id: part.data })
-                  }
-
-                  if (part.data instanceof URL) {
+                  } else if (part.data instanceof URL) {
                     content.push({ type: "input_file", file_url: part.data.toString() })
-                  }
-
-                  if (part.data instanceof Uint8Array) {
+                  } else if (part.data instanceof Uint8Array) {
                     const base64 = Encoding.encodeBase64(part.data)
                     const fileName = part.fileName ?? `part-${index}.pdf`
                     const fileData = `data:application/pdf;base64,${base64}`

@@ -33,7 +33,7 @@ import * as IdGenerator from "effect/unstable/ai/IdGenerator"
 import * as LanguageModel from "effect/unstable/ai/LanguageModel"
 import * as AiModel from "effect/unstable/ai/Model"
 import { toCodecOpenAI } from "effect/unstable/ai/OpenAiStructuredOutput"
-import * as Prompt from "effect/unstable/ai/Prompt"
+import type * as Prompt from "effect/unstable/ai/Prompt"
 import type * as Response from "effect/unstable/ai/Response"
 import { addGenAIAnnotations } from "effect/unstable/ai/Telemetry"
 import * as Tool from "effect/unstable/ai/Tool"
@@ -753,15 +753,6 @@ const prepareMessages = Effect.fnUntraced(
               }
 
               case "file": {
-                if (Prompt.isFileStream(part.data)) {
-                  return yield* AiError.make({
-                    module: "OpenRouterLanguageModel",
-                    method: "prepareMessages",
-                    reason: new AiError.InvalidRequestError({
-                      description: "Streamed files require an HTTP Responses provider"
-                    })
-                  })
-                }
                 if (part.mediaType.startsWith("image/")) {
                   const mediaType = part.mediaType === "image/*" ? "image/jpeg" : part.mediaType
 

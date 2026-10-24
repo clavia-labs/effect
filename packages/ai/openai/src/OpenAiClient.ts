@@ -58,6 +58,7 @@ export interface Service {
    */
   readonly client: HttpClient.HttpClient
   readonly requestBodyChunkBytes?: number
+  readonly streamFiles?: boolean
 
   /**
    * Create a response using the OpenAI responses endpoint.
@@ -134,12 +135,27 @@ export class OpenAiClient extends Context.Service<OpenAiClient, Service>()(
 // =============================================================================
 
 /**
+ * DEFAULT_STREAM_FILES keeps inline file bodies buffered unless explicitly enabled.
+ *
+ * @category configuration
+ * @since 4.0.0
+ */
+export const DEFAULT_STREAM_FILES = false
+
+/**
  * Options for configuring the OpenAI client.
  *
  * @category options
  * @since 4.0.0
  */
 export type Options = {
+  /**
+   * Stream inline image and PDF bytes through the HTTP request body.
+   *
+   * @default false
+   */
+  readonly streamFiles?: boolean | undefined
+
   /**
    * Maximum input bytes encoded per streamed request-body chunk.
    *
@@ -371,6 +387,7 @@ export const make = Effect.fnUntraced(
     return OpenAiClient.of({
       client: httpClient,
       requestBodyChunkBytes,
+      streamFiles: options.streamFiles ?? DEFAULT_STREAM_FILES,
       createResponse: (payload) => createResponse(payload),
       createResponseStream: (payload) => createResponseStream(payload),
       createResponseWithBody: createResponse,

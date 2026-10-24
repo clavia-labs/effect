@@ -19,7 +19,6 @@ import * as Schema from "../../Schema.ts"
 import * as SchemaIssue from "../../SchemaIssue.ts"
 import * as SchemaParser from "../../SchemaParser.ts"
 import * as SchemaTransformation from "../../SchemaTransformation.ts"
-import type * as Stream from "../../Stream.ts"
 import type * as Response from "./Response.ts"
 
 // =============================================================================
@@ -383,59 +382,6 @@ export const reasoningPart = (params: PartConstructorParams<ReasoningPart>): Rea
 // =============================================================================
 
 /**
- * FileStream supplies runtime-only file bytes to providers with streamed request support.
- *
- * @category models
- * @since 4.0.0
- */
-export class FileStream {
-  readonly "~effect/ai/Prompt/FileStream" = "~effect/ai/Prompt/FileStream"
-  readonly stream: Stream.Stream<Uint8Array, Error>
-
-  constructor(stream: Stream.Stream<Uint8Array, Error>) {
-    this.stream = stream
-  }
-
-  toJSON(): never {
-    throw new TypeError("FileStream is runtime-only and cannot be serialized")
-  }
-}
-
-/**
- * isFileStream identifies runtime-only streamed file data.
- *
- * @category guards
- * @since 4.0.0
- */
-export const isFileStream = (value: unknown): value is FileStream =>
-  Predicate.hasProperty(value, "~effect/ai/Prompt/FileStream")
-
-/**
- * fileStream constructs a reusable source consumed only when the request body is sent.
- *
- * @category constructors
- * @since 4.0.0
- */
-export const fileStream = (stream: Stream.Stream<Uint8Array, Error>): FileStream => new FileStream(stream)
-
-const FileStreamSchema = Schema.declare(isFileStream).pipe(
-  Schema.decodeTo(
-    Schema.declare(isFileStream),
-    SchemaTransformation.transformEffect({
-      decode: Effect.succeed,
-      encode: (value, options) =>
-        Effect.fail(
-          new SchemaIssue.InvalidValue(
-            { message: "FileStream is runtime-only and cannot be serialized" },
-            value,
-            options
-          )
-        )
-    })
-  )
-)
-
-/**
  * Content part representing a file attachment.
  *
  * **Details**
@@ -478,7 +424,7 @@ export interface FilePart extends BasePart<"file", FilePartOptions> {
   /**
    * File data as base64 string of data, a byte array, or a URL.
    */
-  readonly data: string | Uint8Array | URL | FileStream
+  readonly data: string | Uint8Array | URL
 }
 
 /**
@@ -499,7 +445,7 @@ export interface FilePartEncoded extends BasePartEncoded<"file", FilePartOptions
   /**
    * File data as base64 string of data, a byte array, or a URL.
    */
-  readonly data: string | Uint8Array | URL | FileStream
+  readonly data: string | Uint8Array | URL
 }
 
 /**
@@ -521,7 +467,7 @@ export const FilePart: Schema.Struct<{
   readonly type: Schema.Literal<"file">
   readonly mediaType: Schema.String
   readonly fileName: Schema.optional<Schema.String>
-  readonly data: Schema.Union<readonly [Schema.String, Schema.Uint8Array, Schema.URL, typeof FileStreamSchema]>
+  readonly data: Schema.Union<readonly [Schema.String, Schema.Uint8Array, Schema.URL]>
   readonly "~effect/ai/Prompt/Part": Schema.withDecodingDefaultKey<Schema.Literal<"~effect/ai/Prompt/Part">>
   readonly options: Schema.withDecodingDefault<
     Schema.$Record<
@@ -534,7 +480,7 @@ export const FilePart: Schema.Struct<{
   type: Schema.Literal("file"),
   mediaType: Schema.String,
   fileName: Schema.optional(Schema.String),
-  data: Schema.Union([Schema.String, Schema.Uint8Array, Schema.URL, FileStreamSchema])
+  data: Schema.Union([Schema.String, Schema.Uint8Array, Schema.URL])
 }).annotate({ identifier: "FilePart" })
 
 /**
@@ -1415,9 +1361,7 @@ export const UserMessage: Schema.Struct<{
               readonly type: Schema.Literal<"file">
               readonly mediaType: Schema.String
               readonly fileName: Schema.optional<Schema.String>
-              readonly data: Schema.Union<
-                readonly [Schema.String, Schema.Uint8Array, Schema.URL, typeof FileStreamSchema]
-              >
+              readonly data: Schema.Union<readonly [Schema.String, Schema.Uint8Array, Schema.URL]>
               readonly "~effect/ai/Prompt/Part": Schema.withDecodingDefaultKey<Schema.Literal<"~effect/ai/Prompt/Part">>
               readonly options: Schema.withDecodingDefault<
                 Schema.$Record<
@@ -1886,13 +1830,6 @@ export interface PromptEncoded {
 
 const $Prompt = Schema.declare((u) => isPrompt(u), { identifier: "Prompt" })
 
-const containsFileStream = (value: unknown, seen = new Set<object>()): boolean => {
-  if (isFileStream(value)) return true
-  if (value === null || typeof value !== "object" || value instanceof Uint8Array || seen.has(value)) return false
-  seen.add(value)
-  return Object.values(value).some((child) => containsFileStream(child, seen))
-}
-
 // TODO: is the type annotation necessary?
 // TODO: shoudn't the name be `PromptFrom...`?
 // TODO: is the explicit encoding necessary? maybe use the default JSON serializer?
@@ -1922,26 +1859,18 @@ export const Prompt: Schema.Codec<Prompt, PromptEncoded> = Schema.Struct({
           }
         ),
       encode: (prompt, options) =>
-        containsFileStream(prompt.content)
-          ? Effect.fail(
-            new SchemaIssue.InvalidValue(
-              { message: "FileStream is runtime-only and cannot be serialized" },
-              prompt.content,
-              options
-            )
-          )
-          : Effect.mapBothEager(
-            SchemaParser.encodeEffect(Schema.Array(Message))(prompt.content),
-            {
-              onSuccess: (messages) => ({ content: messages }),
-              onFailure: () =>
-                new SchemaIssue.InvalidValue(
-                  { message: "Invalid Prompt messages" },
-                  prompt.content,
-                  options
-                )
-            }
-          )
+        Effect.mapBothEager(
+          SchemaParser.encodeEffect(Schema.Array(Message))(prompt.content),
+          {
+            onSuccess: (messages) => ({ content: messages }),
+            onFailure: () =>
+              new SchemaIssue.InvalidValue(
+                { message: "Invalid Prompt messages" },
+                prompt.content,
+                options
+              )
+          }
+        )
     })
   )
 )
