@@ -638,7 +638,7 @@ export const make = Effect.fnUntraced(function*({ model, config: providerConfig 
     > {
       const include = new Set<typeof OpenAiSchema.IncludeEnum.Encoded>(config.include ?? [])
       const capabilities = getModelCapabilities(config.model as string)
-      const files = new Set<object>()
+      const files = { streamed: false }
       const messages = yield* prepareMessages({
         files,
         config,
@@ -669,7 +669,7 @@ export const make = Effect.fnUntraced(function*({ model, config: providerConfig 
       if (tools) request.tools = tools
       if (toolChoice) request.tool_choice = toolChoice
       if (options.previousResponseId) request.previous_response_id = options.previousResponseId
-      return { request, streamed: files.size > 0 }
+      return { request, streamed: files.streamed }
     }
   )
 
@@ -681,12 +681,15 @@ export const make = Effect.fnUntraced(function*({ model, config: providerConfig 
         const toolNameMapper = new Tool.NameMapper(options.tools)
         const { request, streamed } = yield* makeRequest({ config, options, toolNameMapper })
         annotateRequest(options.span, request)
-        const [rawResponse, response] = yield* client.createResponse(
-          request,
-          streamed
-            ? streamedRequestBody(request, client.requestBodyChunkBytes ?? DEFAULT_REQUEST_BODY_CHUNK_BYTES)
-            : undefined
-        )
+        if (streamed && !client.createResponseWithBody) {
+          return yield* unsupportedStreamedClient("generateText")
+        }
+        const [rawResponse, response] = yield* streamed && client.createResponseWithBody
+          ? client.createResponseWithBody(
+            request,
+            streamedRequestBody(request, client.requestBodyChunkBytes ?? DEFAULT_REQUEST_BODY_CHUNK_BYTES)
+          )
+          : client.createResponse(request)
         annotateResponse(options.span, rawResponse)
         return yield* makeResponse({
           options,
@@ -702,15 +705,18 @@ export const make = Effect.fnUntraced(function*({ model, config: providerConfig 
         const toolNameMapper = new Tool.NameMapper(options.tools)
         const { request, streamed } = yield* makeRequest({ config, options, toolNameMapper })
         annotateRequest(options.span, request)
-        const [response, stream] = yield* client.createResponseStream(
-          request,
-          streamed
-            ? streamedRequestBody(
+        if (streamed && !client.createResponseStreamWithBody) {
+          return yield* unsupportedStreamedClient("streamText")
+        }
+        const [response, stream] = yield* streamed && client.createResponseStreamWithBody
+          ? client.createResponseStreamWithBody(
+            request,
+            streamedRequestBody(
               { ...request, stream: true },
               client.requestBodyChunkBytes ?? DEFAULT_REQUEST_BODY_CHUNK_BYTES
             )
-            : undefined
-        )
+          )
+          : client.createResponseStream(request)
         return yield* makeStreamResponse({
           stream,
           response,
@@ -803,6 +809,13 @@ export const withConfigOverride: {
 // Prompt Conversion
 // =============================================================================
 
+const unsupportedStreamedClient = (method: string) =>
+  Effect.fail(AiError.make({
+    module: "OpenAiLanguageModel",
+    method,
+    reason: new AiError.InvalidRequestError({ description: "Client does not support prepared HTTP request bodies" })
+  }))
+
 const getSystemMessageMode = (model: string): "system" | "developer" =>
   model.startsWith("o") ||
     model.startsWith("gpt-5") ||
@@ -824,7 +837,7 @@ const prepareMessages = Effect.fnUntraced(
     readonly options: LanguageModel.ProviderOptions
     readonly include: Set<typeof OpenAiSchema.IncludeEnum.Encoded>
     readonly capabilities: ModelCapabilities
-    readonly files: Set<object>
+    readonly files: { streamed: boolean }
     readonly toolNameMapper: Tool.NameMapper<Tools>
   }): Effect.fn.Return<ReadonlyArray<typeof OpenAiSchema.InputItem.Encoded>, AiError.AiError> {
     const processedApprovalIds = new Set<string>()
@@ -899,48 +912,22 @@ const prepareMessages = Effect.fnUntraced(
               }
 
               case "file": {
-                if (Prompt.isFileStream(part.data)) {
-                  if (part.mediaType.startsWith("image/")) {
-                    const mediaType = part.mediaType === "image/*" ? "image/jpeg" : part.mediaType
-                    const block = attachFileStream(
-                      {
-                        type: "input_image" as const,
-                        image_url: `data:${mediaType};base64,`,
-                        detail: getImageDetail(part)
-                      },
-                      "image_url",
-                      part.data
-                    )
-                    files.add(block)
-                    content.push(block)
-                  } else if (part.mediaType === "application/pdf") {
-                    const block = attachFileStream(
-                      {
-                        type: "input_file" as const,
-                        filename: part.fileName ?? `part-${index}.pdf`,
-                        file_data: "data:application/pdf;base64,"
-                      },
-                      "file_data",
-                      part.data
-                    )
-                    files.add(block)
-                    content.push(block)
-                  } else {
-                    return yield* AiError.make({
-                      module: "OpenAiLanguageModel",
-                      method: "prepareMessages",
-                      reason: new AiError.InvalidRequestError({
-                        description: `Detected unsupported media type for streamed file: '${part.mediaType}'`
-                      })
-                    })
-                  }
-                  break
-                }
                 if (part.mediaType.startsWith("image/")) {
                   const detail = getImageDetail(part)
                   const mediaType = part.mediaType === "image/*" ? "image/jpeg" : part.mediaType
 
-                  if (typeof part.data === "string" && isFileId(part.data, config)) {
+                  if (Prompt.isFileStream(part.data)) {
+                    files.streamed = true
+                    content.push(attachFileStream(
+                      {
+                        type: "input_image" as const,
+                        image_url: `data:${mediaType};base64,`,
+                        detail
+                      },
+                      "image_url",
+                      part.data
+                    ))
+                  } else if (typeof part.data === "string" && isFileId(part.data, config)) {
                     content.push({ type: "input_image", file_id: part.data, detail })
                   } else {
                     const imageUrl = part.data instanceof URL
@@ -953,6 +940,18 @@ const prepareMessages = Effect.fnUntraced(
                     content.push({ type: "input_image", image_url: imageUrl, detail })
                   }
                 } else if (part.mediaType === "application/pdf") {
+                  if (Prompt.isFileStream(part.data)) {
+                    files.streamed = true
+                    content.push(attachFileStream(
+                      {
+                        type: "input_file" as const,
+                        filename: part.fileName ?? `part-${index}.pdf`,
+                        file_data: "data:application/pdf;base64,"
+                      },
+                      "file_data",
+                      part.data
+                    ))
+                  }
                   if (typeof part.data === "string" && isFileId(part.data, config)) {
                     content.push({ type: "input_file", file_id: part.data })
                   }

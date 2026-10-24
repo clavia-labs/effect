@@ -180,6 +180,46 @@ describe("streamed file requests", () => {
       assert.strictEqual(finalized, 1)
     }))
 
+  it.effect("rejects streamed files for legacy custom clients before consuming sources", () =>
+    Effect.gen(function*() {
+      let reads = 0, calls = 0
+      const legacy = OpenAiClient.OpenAiClient.of({
+        client: HttpClient.make(() => Effect.die("Unexpected HTTP request")),
+        createResponse: () =>
+          Effect.sync(() => {
+            calls++
+          }).pipe(Effect.andThen(Effect.die("Unexpected response call"))),
+        createResponseStream: () =>
+          Effect.sync(() => {
+            calls++
+          }).pipe(Effect.andThen(Effect.die("Unexpected stream call"))),
+        createEmbedding: () => Effect.die("Unexpected embedding call")
+      })
+      const layer = OpenAiLanguageModel.layer({ model: "fixture" }).pipe(
+        Layer.provide(Layer.succeed(OpenAiClient.OpenAiClient, legacy))
+      )
+      const prompt = Prompt.make([{
+        role: "user",
+        content: [Prompt.filePart({
+          mediaType: "image/png",
+          data: Prompt.fileStream(Stream.fromEffect(Effect.sync(() => {
+            reads++
+            return new Uint8Array([1, 2, 3])
+          })))
+        })]
+      }])
+      const unary = yield* LanguageModel.generateText({ prompt }).pipe(Effect.provide(layer), Effect.result)
+      const streaming = yield* LanguageModel.streamText({ prompt }).pipe(
+        Stream.runDrain,
+        Effect.provide(layer),
+        Effect.result
+      )
+      assert.strictEqual(unary._tag, "Failure")
+      assert.strictEqual(streaming._tag, "Failure")
+      assert.strictEqual(reads, 0)
+      assert.strictEqual(calls, 0)
+    }))
+
   it.effect("rejects streamed WebSocket requests before consuming file sources", () =>
     Effect.gen(function*() {
       let reads = 0

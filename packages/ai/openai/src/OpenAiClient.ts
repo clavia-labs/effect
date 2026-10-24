@@ -63,8 +63,7 @@ export interface Service {
    * Create a response using the OpenAI responses endpoint.
    */
   readonly createResponse: (
-    options: typeof OpenAiSchema.CreateResponse.Encoded,
-    body?: HttpBody.HttpBody
+    options: typeof OpenAiSchema.CreateResponse.Encoded
   ) => Effect.Effect<
     readonly [body: typeof OpenAiSchema.Response.Type, response: HttpClientResponse.HttpClientResponse],
     AiError.AiError
@@ -74,8 +73,7 @@ export interface Service {
    * Create a streaming response using the OpenAI responses endpoint.
    */
   readonly createResponseStream: (
-    options: Omit<typeof OpenAiSchema.CreateResponse.Encoded, "stream">,
-    body?: HttpBody.HttpBody
+    options: Omit<typeof OpenAiSchema.CreateResponse.Encoded, "stream">
   ) => Effect.Effect<
     readonly [
       response: HttpClientResponse.HttpClientResponse,
@@ -83,6 +81,22 @@ export interface Service {
     ],
     AiError.AiError
   >
+
+  /**
+   * Create a response with a prepared HTTP request body.
+   */
+  readonly createResponseWithBody?: (
+    options: typeof OpenAiSchema.CreateResponse.Encoded,
+    body: HttpBody.HttpBody
+  ) => ReturnType<Service["createResponse"]>
+
+  /**
+   * Create a streaming response with a prepared HTTP request body.
+   */
+  readonly createResponseStreamWithBody?: (
+    options: Omit<typeof OpenAiSchema.CreateResponse.Encoded, "stream">,
+    body: HttpBody.HttpBody
+  ) => ReturnType<Service["createResponseStream"]>
 
   /**
    * Create embeddings using the OpenAI embeddings endpoint.
@@ -305,7 +319,10 @@ export const make = Effect.fnUntraced(
       return [response, stream]
     }
 
-    const createResponseStream: Service["createResponseStream"] = (payload, body) =>
+    const createResponseStream = (
+      payload: Omit<typeof OpenAiSchema.CreateResponse.Encoded, "stream">,
+      body?: HttpBody.HttpBody
+    ): ReturnType<Service["createResponseStream"]> =>
       Effect.contextWith((services) => {
         const socket = Context.getOrUndefined(services, OpenAiSocket)
         if (socket) {
@@ -354,8 +371,10 @@ export const make = Effect.fnUntraced(
     return OpenAiClient.of({
       client: httpClient,
       requestBodyChunkBytes,
-      createResponse,
-      createResponseStream,
+      createResponse: (payload) => createResponse(payload),
+      createResponseStream: (payload) => createResponseStream(payload),
+      createResponseWithBody: createResponse,
+      createResponseStreamWithBody: createResponseStream,
       createEmbedding
     })
   },
