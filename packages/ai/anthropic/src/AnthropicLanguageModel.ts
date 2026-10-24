@@ -892,15 +892,6 @@ const prepareMessages = Effect.fnUntraced(
                     }
 
                     case "file": {
-                      if (Prompt.isFileStream(part.data)) {
-                        return yield* AiError.make({
-                          module: "AnthropicLanguageModel",
-                          method: "prepareMessages",
-                          reason: new AiError.InvalidRequestError({
-                            description: "Streamed files require an HTTP Responses provider"
-                          })
-                        })
-                      }
                       if (part.mediaType.startsWith("image/")) {
                         const mediaType: typeof Generated.Base64ImageSource.Type["media_type"] =
                           (part.mediaType === "image/*" ? "image/jpeg" : part.mediaType) as any

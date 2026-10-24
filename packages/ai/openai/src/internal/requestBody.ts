@@ -1,6 +1,5 @@
 import * as Encoding from "effect/Encoding"
 import * as Stream from "effect/Stream"
-import type * as Prompt from "effect/unstable/ai/Prompt"
 import * as HttpBody from "effect/unstable/http/HttpBody"
 import * as HttpClientRequest from "effect/unstable/http/HttpClientRequest"
 
@@ -17,7 +16,7 @@ const Metadata = Symbol.for("@tardie/ai-openai/RequestBody")
 
 interface FileSource {
   readonly key: string
-  readonly file: Prompt.FileStream
+  readonly file: Stream.Stream<Uint8Array, Error>
 }
 
 interface BodyMetadata {
@@ -26,18 +25,21 @@ interface BodyMetadata {
 }
 
 /** @internal */
-export const attachFileStream = <T extends object>(value: T, key: keyof T & string, file: Prompt.FileStream): T =>
-  Object.assign(value, { [Source]: { key, file } satisfies FileSource })
+export const attachFileStream = <T extends object>(
+  value: T,
+  key: keyof T & string,
+  file: Stream.Stream<Uint8Array, Error>
+): T => Object.assign(value, { [Source]: { key, file } satisfies FileSource })
 
 /** @internal */
 export const copyFileStream = (from: object, to: object): void => {
   if (Source in from) Object.assign(to, { [Source]: from[Source] })
 }
 
-const encodeFile = (file: Prompt.FileStream, chunkBytes: number): Stream.Stream<string, Error> =>
+const encodeFile = (file: Stream.Stream<Uint8Array, Error>, chunkBytes: number): Stream.Stream<string, Error> =>
   Stream.suspend(() => {
     let remainder = new Uint8Array(0)
-    const chunks = file.stream.pipe(
+    const chunks = file.pipe(
       Stream.flatMap((bytes) =>
         Stream.fromIterable((function*() {
           for (let offset = 0; offset < bytes.length; offset += chunkBytes) {
