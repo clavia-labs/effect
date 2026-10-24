@@ -59,6 +59,7 @@ export interface Service {
   readonly client: HttpClient.HttpClient
   readonly requestBodyChunkBytes?: number
   readonly streamFiles?: boolean
+  readonly imageUrlToStream?: ImageUrlToStream
 
   /**
    * Create a response using the OpenAI responses endpoint.
@@ -135,6 +136,14 @@ export class OpenAiClient extends Context.Service<OpenAiClient, Service>()(
 // =============================================================================
 
 /**
+ * ImageUrlToStream resolves selected image URLs to cold byte streams; undefined forwards the URL unchanged.
+ *
+ * @category options
+ * @since 4.0.0
+ */
+export type ImageUrlToStream = (url: URL) => Stream.Stream<Uint8Array, Error> | undefined
+
+/**
  * DEFAULT_STREAM_FILES keeps inline file bodies buffered unless explicitly enabled.
  *
  * @category configuration
@@ -155,6 +164,11 @@ export type Options = {
    * @default false
    */
   readonly streamFiles?: boolean | undefined
+
+  /**
+   * Resolve selected image URLs when the HTTP body is consumed.
+   */
+  readonly imageUrlToStream?: ImageUrlToStream | undefined
 
   /**
    * Maximum input bytes encoded per streamed request-body chunk.
@@ -388,6 +402,7 @@ export const make = Effect.fnUntraced(
       client: httpClient,
       requestBodyChunkBytes,
       streamFiles: options.streamFiles ?? DEFAULT_STREAM_FILES,
+      ...(options.imageUrlToStream === undefined ? {} : { imageUrlToStream: options.imageUrlToStream }),
       createResponse: (payload) => createResponse(payload),
       createResponseStream: (payload) => createResponseStream(payload),
       createResponseWithBody: createResponse,

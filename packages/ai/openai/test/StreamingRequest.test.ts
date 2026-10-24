@@ -24,7 +24,8 @@ const frames = `data: ${JSON.stringify({ type: "response.completed", sequence_nu
 const fixture = (
   transform = (request: HttpClientRequest.HttpClientRequest) => request,
   chunkBytes = 5,
-  streamFiles = true
+  streamFiles = true,
+  imageUrlToStream?: OpenAiClient.Options["imageUrlToStream"]
 ) => {
   const bodies: Array<string> = []
   const tags: Array<string> = []
@@ -47,7 +48,7 @@ const fixture = (
     })
   )
   const layer = OpenAiLanguageModel.layer({ model: "fixture" }).pipe(
-    Layer.provide(OpenAiClient.layer({ requestBodyChunkBytes: chunkBytes, streamFiles })),
+    Layer.provide(OpenAiClient.layer({ requestBodyChunkBytes: chunkBytes, streamFiles, imageUrlToStream })),
     Layer.provide(Layer.succeed(HttpClient.HttpClient, http))
   )
   const run = (prompt: Prompt.Prompt) =>
@@ -100,6 +101,55 @@ describe("streamed file requests", () => {
       assert.deepStrictEqual(test.tags, ["Stream"])
       assert.strictEqual(test.bodies[0], buffered.bodies[0])
       assert.strictEqual(JSON.parse(test.bodies[0]).stream, true)
+    }))
+
+  it.effect("resolves image URLs lazily while preserving buffered request bytes", () =>
+    Effect.gen(function*() {
+      const images = Array.from({ length: 10 }, (_, index) => new Uint8Array(128 + index).fill(index))
+      let reads = 0
+      const buffered = fixture(undefined, 5, false)
+      const lazy = fixture(
+        (request) => {
+          assert.strictEqual(reads, 0)
+          return request
+        },
+        5,
+        false,
+        (url) =>
+          url.protocol === "image-object:"
+            ? Stream.fromEffect(Effect.sync(() => {
+              reads++
+              return images[Number(url.pathname.slice(1))]
+            }))
+            : undefined
+      )
+      const prompt = (urls: boolean) =>
+        Prompt.make([{
+          role: "user",
+          content: images.map((bytes, index) =>
+            Prompt.filePart({
+              mediaType: "image/png",
+              data: urls ? new URL(`image-object://fixture/${index}`) : bytes
+            })
+          )
+        }])
+      yield* buffered.run(prompt(false))
+      yield* lazy.run(prompt(true))
+      assert.strictEqual(reads, 10)
+      assert.deepStrictEqual(lazy.tags, ["Stream"])
+      assert.strictEqual(lazy.bodies[0], buffered.bodies[0])
+      const forwarded = fixture(undefined, 5, false, () => undefined)
+      yield* forwarded.run(
+        Prompt.make([{
+          role: "user",
+          content: [Prompt.filePart({ mediaType: "image/png", data: new URL("https://fixture.invalid/image.png") })]
+        }])
+      )
+      assert.deepStrictEqual(forwarded.tags, ["Uint8Array"])
+      assert.strictEqual(
+        JSON.parse(forwarded.bodies[0]).input[0].content[0].image_url,
+        "https://fixture.invalid/image.png"
+      )
     }))
 
   it.effect("preserves cold sources through metadata profiling and retry rebuilds", () =>
