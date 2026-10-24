@@ -43,7 +43,7 @@ import {
   streamedRequestBody
 } from "./internal/requestBody.ts"
 import * as InternalUtilities from "./internal/utilities.ts"
-import { OpenAiClient } from "./OpenAiClient.ts"
+import { type ImageUrlToStream, OpenAiClient } from "./OpenAiClient.ts"
 import * as OpenAiSchema from "./OpenAiSchema.ts"
 import { addGenAIAnnotations } from "./OpenAiTelemetry.ts"
 import type * as OpenAiTool from "./OpenAiTool.ts"
@@ -638,7 +638,7 @@ export const make = Effect.fnUntraced(function*({ model, config: providerConfig 
     > {
       const include = new Set<typeof OpenAiSchema.IncludeEnum.Encoded>(config.include ?? [])
       const capabilities = getModelCapabilities(config.model as string)
-      const files = { enabled: client.streamFiles === true, streamed: false }
+      const files = { enabled: client.streamFiles === true, streamed: false, imageUrlToStream: client.imageUrlToStream }
       const messages = yield* prepareMessages({
         files,
         config,
@@ -837,7 +837,7 @@ const prepareMessages = Effect.fnUntraced(
     readonly options: LanguageModel.ProviderOptions
     readonly include: Set<typeof OpenAiSchema.IncludeEnum.Encoded>
     readonly capabilities: ModelCapabilities
-    readonly files: { enabled: boolean; streamed: boolean }
+    readonly files: { enabled: boolean; streamed: boolean; imageUrlToStream: ImageUrlToStream | undefined }
     readonly toolNameMapper: Tool.NameMapper<Tools>
   }): Effect.fn.Return<ReadonlyArray<typeof OpenAiSchema.InputItem.Encoded>, AiError.AiError> {
     const processedApprovalIds = new Set<string>()
@@ -916,8 +916,12 @@ const prepareMessages = Effect.fnUntraced(
                   const detail = getImageDetail(part)
                   const mediaType = part.mediaType === "image/*" ? "image/jpeg" : part.mediaType
 
-                  // TODO: Use native lazy file inputs when Effect supports them; inline bytes remain hydrated for the request.
-                  if (files.enabled && part.data instanceof Uint8Array) {
+                  const source = part.data instanceof URL
+                    ? files.imageUrlToStream?.(part.data)
+                    : files.enabled && part.data instanceof Uint8Array
+                    ? Stream.succeed(part.data)
+                    : undefined
+                  if (source !== undefined) {
                     files.streamed = true
                     content.push(attachFileStream(
                       {
@@ -926,7 +930,7 @@ const prepareMessages = Effect.fnUntraced(
                         detail
                       },
                       "image_url",
-                      Stream.succeed(part.data)
+                      source
                     ))
                   } else if (typeof part.data === "string" && isFileId(part.data, config)) {
                     content.push({ type: "input_image", file_id: part.data, detail })
