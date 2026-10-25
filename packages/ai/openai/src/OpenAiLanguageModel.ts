@@ -1152,7 +1152,13 @@ const prepareMessages = Effect.fnUntraced(
                   type: "function_call",
                   name: toolName,
                   call_id: part.id,
-                  arguments: JSON.stringify(part.params),
+                  // Rejected arguments remain in the caller's audit record. The
+                  // Responses API requires an object in function-call history.
+                  arguments: JSON.stringify(
+                    typeof part.params === "object" && part.params !== null && !Array.isArray(part.params)
+                      ? part.params
+                      : {}
+                  ),
                   ...(Predicate.isNotNull(id) ? { id } : {}),
                   ...(Predicate.isNotNull(status) ? { status } : {}),
                   ...(Predicate.isNotNull(encryptedContent) ? { encrypted_content: encryptedContent } : {})

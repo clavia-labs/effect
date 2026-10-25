@@ -461,6 +461,34 @@ describe("OpenAiLanguageModel", () => {
             })
           }).pipe(Effect.provide(makeTestLayer({ body: { model: "o1" } }))))
 
+        it.effect("keeps rejected tool arguments provider-valid without changing the prompt", () =>
+          Effect.gen(function*() {
+            const raw = '{"input": None}'
+            const prompt = Prompt.make([
+              { role: "user", content: "Use the tool" },
+              { role: "assistant", content: [Prompt.toolCallPart({
+                id: "call_rejected", name: "TestTool", params: raw, providerExecuted: false
+              })] },
+              { role: "tool", content: [Prompt.toolResultPart({
+                id: "call_rejected", name: "TestTool", isFailure: true,
+                result: "Tool arguments were not valid JSON", providerExecuted: false
+              })] }
+            ])
+            const before = JSON.stringify(prompt)
+            yield* LanguageModel.generateText({ prompt, toolkit: TestToolkit }).pipe(
+              Effect.provide(OpenAiLanguageModel.model("gpt-4o-mini"))
+            )
+            const requests = yield* MockHttpClient.requests
+            const body = yield* getRequestBody(requests[0])
+            const call = body.input.find((item: any) => item.type === "function_call")
+            const result = body.input.find((item: any) => item.type === "function_call_output")
+            deepStrictEqual(JSON.parse(call.arguments), {})
+            strictEqual(call.call_id, "call_rejected")
+            strictEqual(result.call_id, call.call_id)
+            strictEqual(JSON.stringify(prompt), before)
+            assertTrue(before.includes("None"))
+          }).pipe(Effect.provide([makeTestLayer(), TestToolkitLayer])))
+
         it.effect("converts tool call parts to function_call", () =>
           Effect.gen(function*() {
             yield* LanguageModel.generateText({
