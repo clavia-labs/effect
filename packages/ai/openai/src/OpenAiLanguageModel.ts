@@ -1936,6 +1936,23 @@ const makeStreamResponse = Effect.fnUntraced(
             })
           })
       }).pipe(Effect.result)
+      // Let the external tool runtime report undeclared calls without losing the response.
+      if (!options.tools.some((tool) => tool.name === call.name)) {
+        parts.push({ type: "tool-params-end", id: call.id })
+        parts.push({
+          type: "error",
+          error: {
+            _tag: "ToolCallValidationError",
+            id: call.id,
+            name: call.name,
+            params: parsed._tag === "Failure" ? call.arguments : parsed.success,
+            cause: AiError.make({ module: "OpenAiLanguageModel", method: "makeStreamResponse",
+              reason: new AiError.ToolNotFoundError({ toolName: call.name, availableTools: options.tools.map((tool) => tool.name) }) }),
+            providerMetadata: { openai: { ...makeItemIdMetadata(call.itemId), ...makeEncryptedContentMetadata(call.encryptedContent) } }
+          }
+        })
+        return
+      }
       if (parsed._tag === "Failure") {
         toolParseError ??= parsed.failure
         parts.push({ type: "tool-params-end", id: call.id })
