@@ -2430,23 +2430,39 @@ const TestToolkitLayer = TestToolkit.toLayer({
   TestTool: ({ input }) => Effect.succeed({ output: `processed: ${input}` })
 })
 
-
 it.effect("preserves an undeclared streamed tool call for external validation", () =>
   Effect.gen(function*() {
     const call = makeFunctionCall("MissingTool", { input: "test" }, { id: "fc_missing", call_id: "call_missing" })
     const response = makeDefaultResponse({ output: [call], usage: makeUsage() })
     const events = [
       { type: "response.created", sequence_number: 0, response: { ...response, status: "in_progress", output: [] } },
-      { type: "response.output_item.added", sequence_number: 1, output_index: 0, item: { ...call, status: "in_progress", arguments: "" } },
+      {
+        type: "response.output_item.added",
+        sequence_number: 1,
+        output_index: 0,
+        item: { ...call, status: "in_progress", arguments: "" }
+      },
       { type: "response.output_item.done", sequence_number: 2, output_index: 0, item: call },
       { type: "response.completed", sequence_number: 3, response }
     ] as unknown as ReadonlyArray<typeof Generated.ResponseStreamEvent.Type>
     const parts = yield* LanguageModel.streamText({
-      prompt: "Inspect the record", toolkit: Toolkit.make(TestTool), disableToolCallResolution: true
-    }).pipe(Stream.runCollect, Effect.provide(OpenAiLanguageModel.model("gpt-4o-mini")), Effect.provide(makeStreamTestLayer(events)))
+      prompt: "Inspect the record",
+      toolkit: Toolkit.make(TestTool),
+      disableToolCallResolution: true
+    }).pipe(
+      Stream.runCollect,
+      Effect.provide(OpenAiLanguageModel.model("gpt-4o-mini")),
+      Effect.provide(makeStreamTestLayer(events))
+    )
     const failure = parts.find((part) => part.type === "error")
     assert.isDefined(failure)
-    const error = failure.error as { _tag: string; id: string; name: string; params: unknown; providerMetadata: { openai: { itemId: string } } }
+    const error = failure.error as {
+      _tag: string
+      id: string
+      name: string
+      params: unknown
+      providerMetadata: { openai: { itemId: string } }
+    }
     strictEqual(error._tag, "ToolCallValidationError")
     strictEqual(error.id, "call_missing")
     strictEqual(error.name, "MissingTool")

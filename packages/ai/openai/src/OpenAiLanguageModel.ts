@@ -1946,9 +1946,17 @@ const makeStreamResponse = Effect.fnUntraced(
             id: call.id,
             name: call.name,
             params: parsed._tag === "Failure" ? call.arguments : parsed.success,
-            cause: AiError.make({ module: "OpenAiLanguageModel", method: "makeStreamResponse",
-              reason: new AiError.ToolNotFoundError({ toolName: call.name, availableTools: options.tools.map((tool) => tool.name) }) }),
-            providerMetadata: { openai: { ...makeItemIdMetadata(call.itemId), ...makeEncryptedContentMetadata(call.encryptedContent) } }
+            cause: AiError.make({
+              module: "OpenAiLanguageModel",
+              method: "makeStreamResponse",
+              reason: new AiError.ToolNotFoundError({
+                toolName: call.name,
+                availableTools: options.tools.map((tool) => tool.name)
+              })
+            }),
+            providerMetadata: {
+              openai: { ...makeItemIdMetadata(call.itemId), ...makeEncryptedContentMetadata(call.encryptedContent) }
+            }
           }
         })
         return
