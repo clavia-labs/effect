@@ -541,7 +541,7 @@ class BedrockResponse {
         ] as const
       ) {
         if (event[key] !== undefined) {
-          const error: Error = Object.assign(new Error(event[key].message), event[key])
+          const error: Error = Object.assign(new Error(event[key].message ?? key), event[key])
           error.name = key[0]!.toUpperCase() + key.slice(1)
           return yield* providerError(error)
         }

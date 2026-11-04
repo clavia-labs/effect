@@ -1,6 +1,6 @@
 {
   "name": "@tardie/ai-bedrock",
-  "version": "0.1.0",
+  "version": "4.1.2-clavia.0",
   "type": "module",
   "license": "MIT",
   "description": "AWS Bedrock Converse provider for Effect AI.",

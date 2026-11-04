@@ -4,8 +4,8 @@ The `clavia/ai-providers` branch publishes six AI packages. Each package require
 
 | Directory                   | npm package                | Version          |
 | --------------------------- | -------------------------- | ---------------- |
-| `packages/ai/bedrock`       | `@tardie/ai-bedrock`       | `0.1.0`          |
-| `packages/ai/clavia`        | `@tardie/ai`               | `0.1.0`          |
+| `packages/ai/bedrock`       | `@tardie/ai-bedrock`       | `4.1.2-clavia.0` |
+| `packages/ai/clavia`        | `@tardie/ai`               | `0.2.0`          |
 | `packages/ai/openai`        | `@tardie/ai-openai`        | `4.1.2-clavia.0` |
 | `packages/ai/anthropic`     | `@tardie/ai-anthropic`     | `4.1.2-clavia.0` |
 | `packages/ai/openai-compat` | `@tardie/ai-openai-compat` | `4.1.2-clavia.0` |
