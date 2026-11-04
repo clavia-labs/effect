@@ -9,6 +9,7 @@
  * @since 4.0.0
  */
 /** @effect-diagnostics preferSchemaOverJson:skip-file */
+import * as ProviderLanguageModel from "@tardie/ai/LanguageModel"
 import * as AiError from "effect/ai/AiError"
 import { toCodecAnthropic } from "effect/ai/AnthropicStructuredOutput"
 import * as IdGenerator from "effect/ai/IdGenerator"
@@ -785,7 +786,7 @@ export const make = Effect.fnUntraced(function*({ model, config: providerConfig 
     }
   )
 
-  return yield* LanguageModel.make({
+  return yield* ProviderLanguageModel.make({
     codecTransformer: toCodecAnthropic,
     supportsSystemMessagesInHistory: Effect.map(
       makeConfig,

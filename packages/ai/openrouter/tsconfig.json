@@ -4,6 +4,7 @@
   "include": ["src"],
   "references": [
     { "path": "../../effect" },
+    { "path": "../clavia" },
     { "path": "../anthropic" },
     { "path": "../openai" }
   ]

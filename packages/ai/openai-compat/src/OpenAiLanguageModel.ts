@@ -9,6 +9,7 @@
  * @stability unstable
  * @since 4.0.0
  */
+import * as ProviderLanguageModel from "@tardie/ai/LanguageModel"
 import * as AiError from "effect/ai/AiError"
 import * as LanguageModel from "effect/ai/LanguageModel"
 import * as AiModel from "effect/ai/Model"
@@ -661,7 +662,7 @@ export const make = Effect.fnUntraced(function*({ model, config: providerConfig 
     }
   )
 
-  return yield* LanguageModel.make({
+  return yield* ProviderLanguageModel.make({
     codecTransformer: toCodecOpenAI,
     generateText: Effect.fnUntraced(
       function*(options) {

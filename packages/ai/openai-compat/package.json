@@ -65,6 +65,9 @@
   "devDependencies": {
     "effect": "workspace:^"
   },
+  "dependencies": {
+    "@tardie/ai": "workspace:*"
+  },
   "peerDependencies": {
     "effect": "4.1.2"
   }

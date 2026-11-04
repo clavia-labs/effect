@@ -238,6 +238,10 @@ importers:
         version: 8.0.2
 
   packages/ai/anthropic:
+    dependencies:
+      '@tardie/ai':
+        specifier: workspace:*
+        version: link:../clavia
     devDependencies:
       effect:
         specifier: workspace:^
@@ -269,18 +273,30 @@ importers:
         version: link:../../effect
 
   packages/ai/openai:
+    dependencies:
+      '@tardie/ai':
+        specifier: workspace:*
+        version: link:../clavia
     devDependencies:
       effect:
         specifier: workspace:^
         version: link:../../effect
 
   packages/ai/openai-compat:
+    dependencies:
+      '@tardie/ai':
+        specifier: workspace:*
+        version: link:../clavia
     devDependencies:
       effect:
         specifier: workspace:^
         version: link:../../effect
 
   packages/ai/openrouter:
+    dependencies:
+      '@tardie/ai':
+        specifier: workspace:*
+        version: link:../clavia
     devDependencies:
       effect:
         specifier: workspace:^
