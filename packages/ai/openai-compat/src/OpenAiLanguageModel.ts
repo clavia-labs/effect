@@ -1094,6 +1094,19 @@ const makeStreamResponse = Effect.fnUntraced(
         const parts: Array<Response.StreamPartEncoded> = []
 
         if (event === "[DONE]") {
+          if (finishReason == null || finishReason.length === 0) {
+            return yield* AiError.make({
+              module: "OpenAiLanguageModel",
+              method: "makeStreamResponse",
+              reason: AiError.NetworkError.make({
+                reason: "TransportError",
+                method: response.request.method,
+                url: response.request.url,
+                description: "Model stream ended before provider completion"
+              })
+            })
+          }
+
           if (reasoningStarted) {
             parts.push({
               type: "reasoning-end",

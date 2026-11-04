@@ -1431,6 +1431,27 @@ describe("OpenAiLanguageModel", () => {
   })
 
   describe("streamText", () => {
+    it.effect("rejects a sentinel without provider completion", () =>
+      Effect.gen(function*() {
+        const layer = OpenAiClient.layer({ apiKey: Redacted.make("sk-test-key") }).pipe(
+          Layer.provide(Layer.succeed(
+            HttpClient.HttpClient,
+            makeHttpClient((request) => Effect.succeed(sseResponse(request, ["[DONE]"])))
+          ))
+        )
+        const result = yield* LanguageModel.streamText({ prompt: "test" }).pipe(
+          Stream.runCollect,
+          Effect.provide(OpenAiLanguageModel.model("gpt-4o-mini")),
+          Effect.provide(layer),
+          Effect.result
+        )
+        assert.strictEqual(result._tag, "Failure")
+        if (result._tag === "Failure") {
+          assert.strictEqual(result.failure.reason._tag, "NetworkError")
+          assert.strictEqual(result.failure.isRetryable, true)
+        }
+      }))
+
     it.effect("replays streamed assistant text and tool calls with store enabled", () =>
       Effect.gen(function*() {
         const requests: Array<HttpClientRequest.HttpClientRequest> = []
@@ -1620,6 +1641,13 @@ describe("OpenAiLanguageModel", () => {
                     },
                     finish_reason: null
                   }]
+                },
+                {
+                  id: "chatcmpl_nullable_tool_calls",
+                  object: "chat.completion.chunk",
+                  model: "inception/mercury-2",
+                  created: 1,
+                  choices: [{ index: 0, delta: {}, finish_reason: "stop" }]
                 },
                 "[DONE]"
               ]))
