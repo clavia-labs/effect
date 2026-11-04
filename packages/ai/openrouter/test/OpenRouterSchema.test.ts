@@ -1,5 +1,5 @@
-import * as OpenRouterSchema from "@tardie/ai-openrouter/OpenRouterSchema"
 import { assert, describe, it } from "@effect/vitest"
+import * as OpenRouterSchema from "@tardie/ai-openrouter/OpenRouterSchema"
 import { Schema } from "effect"
 
 const choiceAnswer = {

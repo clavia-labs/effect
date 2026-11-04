@@ -1,5 +1,5 @@
-import { OpenAiTelemetry } from "@tardie/ai-openai"
 import { assert, describe, it } from "@effect/vitest"
+import { OpenAiTelemetry } from "@tardie/ai-openai"
 import { Effect } from "effect"
 
 describe("OpenAiTelemetry", () => {

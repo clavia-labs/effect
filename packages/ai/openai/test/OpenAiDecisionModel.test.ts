@@ -1,6 +1,6 @@
+import { assert, describe, it } from "@effect/vitest"
 import { OpenAiClient } from "@tardie/ai-openai"
 import * as OpenAiDecisionModel from "@tardie/ai-openai/OpenAiDecisionModel"
-import { assert, describe, it } from "@effect/vitest"
 import { Effect, Layer, Redacted, Result, Schema } from "effect"
 import { Decision, DecisionModel, Model } from "effect/ai"
 import { HttpClient, type HttpClientError, type HttpClientRequest, HttpClientResponse } from "effect/http"

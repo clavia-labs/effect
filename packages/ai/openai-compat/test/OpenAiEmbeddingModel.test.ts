@@ -1,5 +1,5 @@
-import { OpenAiClient, OpenAiEmbeddingModel } from "@tardie/ai-openai-compat"
 import { assert, describe, it } from "@effect/vitest"
+import { OpenAiClient, OpenAiEmbeddingModel } from "@tardie/ai-openai-compat"
 import { Effect, Layer, Redacted } from "effect"
 import { EmbeddingModel } from "effect/ai"
 import { HttpClient, type HttpClientError, type HttpClientRequest, HttpClientResponse } from "effect/http"

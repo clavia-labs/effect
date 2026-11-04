@@ -1,6 +1,6 @@
-import { AnthropicClient, AnthropicLanguageModel, AnthropicTool } from "@tardie/ai-anthropic"
 import { assert, describe, it } from "@effect/vitest"
 import { assertDefined } from "@effect/vitest/utils"
+import { AnthropicClient, AnthropicLanguageModel, AnthropicTool } from "@tardie/ai-anthropic"
 import { Cause, Effect, Exit, Layer, Option, Redacted, Schema, Stream, Tracer } from "effect"
 import {
   type AiError,

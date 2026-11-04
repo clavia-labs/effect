@@ -1,6 +1,6 @@
-import { Generated, OpenRouterClient, OpenRouterLanguageModel } from "@tardie/ai-openrouter"
 import { assert, describe, it } from "@effect/vitest"
 import { deepStrictEqual, strictEqual } from "@effect/vitest/utils"
+import { Generated, OpenRouterClient, OpenRouterLanguageModel } from "@tardie/ai-openrouter"
 import { Array, Context, Effect, Layer, Redacted, Ref, Schema, Stream } from "effect"
 import { LanguageModel, Model, Prompt, Tool, Toolkit } from "effect/ai"
 import { HttpClient, type HttpClientError, type HttpClientRequest, HttpClientResponse } from "effect/http"

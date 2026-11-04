@@ -1,6 +1,6 @@
+import { assert, describe, it } from "@effect/vitest"
 import { AnthropicClient } from "@tardie/ai-anthropic"
 import * as Errors from "@tardie/ai-anthropic/internal/errors"
-import { assert, describe, it } from "@effect/vitest"
 import { Context, Duration, Effect, Layer, Redacted, type Schema } from "effect"
 import { HttpClient, type HttpClientError, type HttpClientRequest, HttpClientResponse } from "effect/http"
 

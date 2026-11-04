@@ -1,6 +1,6 @@
+import { assert, describe, it } from "@effect/vitest"
 import { OpenAiClient } from "@tardie/ai-openai-compat"
 import * as Errors from "@tardie/ai-openai-compat/internal/errors"
-import { assert, describe, it } from "@effect/vitest"
 import { Context, Effect, Layer, Redacted, type Schema, Stream } from "effect"
 import { HttpClient, type HttpClientError, type HttpClientRequest, HttpClientResponse } from "effect/http"
 

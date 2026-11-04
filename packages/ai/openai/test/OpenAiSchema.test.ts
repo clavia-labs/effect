@@ -1,6 +1,6 @@
+import { assert, describe, it } from "@effect/vitest"
 import { Generated, OpenAiClient, OpenAiLanguageModel } from "@tardie/ai-openai"
 import * as OpenAiSchema from "@tardie/ai-openai/OpenAiSchema"
-import { assert, describe, it } from "@effect/vitest"
 import { Effect, Layer, Schema, Stream } from "effect"
 import { LanguageModel } from "effect/ai"
 import * as Sse from "effect/encoding/Sse"
