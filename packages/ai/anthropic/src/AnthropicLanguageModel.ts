@@ -2060,6 +2060,7 @@ const makeResponse = Effect.fnUntraced(
     const outputTokens = rawResponse.usage.output_tokens
     const cacheWriteTokens = rawResponse.usage.cache_creation_input_tokens ?? 0
     const cacheReadTokens = rawResponse.usage.cache_read_input_tokens ?? 0
+    const reasoningTokens = rawResponse.usage.output_tokens_details?.thinking_tokens
 
     parts.push({
       type: "finish",
@@ -2074,7 +2075,7 @@ const makeResponse = Effect.fnUntraced(
         outputTokens: {
           total: outputTokens,
           text: undefined,
-          reasoning: undefined
+          reasoning: reasoningTokens
         }
       },
       response: buildHttpResponseDetails(response),
@@ -2140,11 +2141,13 @@ const makeStreamResponse = Effect.fnUntraced(
       outputTokens: number
       cacheReadInputTokens: number
       cacheWriteInputTokens: number
+      reasoningTokens: number | undefined
     }> = {
       inputTokens: 0,
       outputTokens: 0,
       cacheReadInputTokens: 0,
-      cacheWriteInputTokens: 0
+      cacheWriteInputTokens: 0,
+      reasoningTokens: undefined
     }
 
     let blockType: typeof Generated.BetaContentBlockStartEvent.Encoded["content_block"]["type"] | undefined = undefined
@@ -2256,6 +2259,10 @@ const makeStreamResponse = Effect.fnUntraced(
               usage.cacheWriteInputTokens = event.usage.cache_creation_input_tokens
             }
 
+            if (Predicate.isNotNullish(event.usage.output_tokens_details?.thinking_tokens)) {
+              usage.reasoningTokens = event.usage.output_tokens_details.thinking_tokens
+            }
+
             if (Predicate.isNotNullish(event.delta.container)) {
               container = event.delta.container
             }
@@ -2298,7 +2305,7 @@ const makeStreamResponse = Effect.fnUntraced(
                 outputTokens: {
                   total: usage.outputTokens,
                   text: undefined,
-                  reasoning: undefined
+                  reasoning: usage.reasoningTokens
                 }
               },
               response: buildHttpResponseDetails(response),
