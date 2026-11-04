@@ -219,6 +219,19 @@ for (const provider of ["openai", "anthropic", "compat", "openrouter"] as const)
             assert.include(replay, "\"reasoning_details\":")
           }
           if (provider === "compat") assert.include(replay, `"${field}":"Check"`)
+          if (provider === "compat") {
+            const [assistant, ...others] = (requests[1] as { messages: Array<Record<string, unknown>> }).messages
+              .filter((m) => m.role === "assistant")
+            assert.strictEqual(others.length, 0)
+            assert.isDefined(assistant)
+            assert.strictEqual(assistant[field], "Check")
+            assert.strictEqual(assistant[field === "reasoning" ? "reasoning_content" : "reasoning"], undefined)
+            assert.deepStrictEqual((assistant.tool_calls as Array<{ id: string }>).map((call) => call.id), [
+              "a",
+              "b",
+              "c"
+            ])
+          }
           for (const id of ["a", "b", "c"]) {
             assert.include(replay, `"${provider === "openai" ? "call_id" : "id"}":"${id}"`)
           }
