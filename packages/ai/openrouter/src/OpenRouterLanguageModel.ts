@@ -1209,6 +1209,8 @@ const makeStreamResponse = Effect.fnUntraced(
     let activeTextId: string | undefined = undefined
 
     let totalToolCalls = 0
+    let toolParseError: AiError.AiError | undefined
+    let routedProvider: string | undefined
     const activeToolCalls: Record<number, {
       readonly id: string
       readonly type: "function"
@@ -1239,6 +1241,9 @@ const makeStreamResponse = Effect.fnUntraced(
     return stream.pipe(
       Stream.mapEffect(Effect.fnUntraced(function*(event) {
         const parts: Array<Response.StreamPartEncoded> = []
+        if (event.provider !== undefined) {
+          routedProvider = event.provider
+        }
 
         if (Predicate.isNotUndefined(event.error)) {
           finishReason = "error"
@@ -1542,17 +1547,26 @@ const makeStreamResponse = Effect.fnUntraced(
             finishReason = "tool-calls"
           }
 
-          // Forward any unsent tool calls if finish reason is 'tool-calls'
-          if (finishReason === "tool-calls") {
+          if (finishReason === "tool-calls" || finishReason === "stop") {
             for (const toolCall of Object.values(activeToolCalls)) {
-              // Coerce invalid tool call parameters to an empty object
-              let params: unknown
-              // @effect-diagnostics-next-line tryCatchInEffectGen:off
-              try {
-                params = Tool.unsafeSecureJsonParse(toolCall.params)
-              } catch {
-                params = {}
+              const parsed = yield* Effect.try({
+                try: () => Tool.unsafeSecureJsonParse(toolCall.params.length === 0 ? "{}" : toolCall.params),
+                catch: (cause) =>
+                  AiError.make({
+                    module: "OpenRouterLanguageModel",
+                    method: "makeStreamResponse",
+                    reason: new AiError.ToolParameterValidationError({
+                      toolName: toolCall.name,
+                      description: `Failed to securely JSON parse tool parameters: ${cause}`
+                    })
+                  })
+              }).pipe(Effect.result)
+              parts.push({ type: "tool-params-end", id: toolCall.id })
+              if (parsed._tag === "Failure") {
+                toolParseError ??= parsed.failure
+                continue
               }
+              const params = parsed.success
 
               // Only attach reasoning_details to the first tool call to avoid
               // duplicating thinking blocks for parallel tool calls (Claude)
@@ -1567,6 +1581,10 @@ const makeStreamResponse = Effect.fnUntraced(
               })
 
               reasoningDetailsAttachedToToolCall = true
+            }
+          } else {
+            for (const toolCall of Object.values(activeToolCalls)) {
+              parts.push({ type: "tool-params-end", id: toolCall.id })
             }
           }
 
@@ -1593,9 +1611,7 @@ const makeStreamResponse = Effect.fnUntraced(
                 ? { systemFingerprint: event.system_fingerprint }
                 : undefined),
               ...(Predicate.isNotUndefined(event.usage) ? { usage: event.usage } : undefined),
-              ...(Predicate.hasProperty(event, "provider") && Predicate.isString(event.provider)
-                ? { provider: event.provider }
-                : undefined),
+              ...(routedProvider !== undefined ? { provider: routedProvider } : undefined),
               ...(accumulatedFileAnnotations.length > 0 ? { annotations: accumulatedFileAnnotations } : undefined)
             }
           }
@@ -1611,7 +1627,8 @@ const makeStreamResponse = Effect.fnUntraced(
 
         return parts
       })),
-      Stream.flattenIterable
+      Stream.flattenIterable,
+      Stream.concat(Stream.suspend(() => toolParseError === undefined ? Stream.empty : Stream.fail(toolParseError)))
     )
   }
 )
