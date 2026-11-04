@@ -32,18 +32,69 @@ import type * as HttpClientResponse from "effect/http/HttpClientResponse"
 import * as Layer from "effect/Layer"
 import * as Predicate from "effect/Predicate"
 import * as Redactable from "effect/Redactable"
-import type * as Schema from "effect/Schema"
+import * as Schema from "effect/Schema"
 import * as SchemaAST from "effect/SchemaAST"
 import * as Stream from "effect/Stream"
+import * as Struct from "effect/Struct"
 import type { Span } from "effect/Tracer"
-import type { DeepMutable, Mutable, Simplify } from "effect/Types"
-import type * as Generated from "./Generated.ts"
+import type { DeepMutable, Mutable } from "effect/Types"
+import * as Generated from "./Generated.ts"
 import { ReasoningDetailsDuplicateTracker, resolveFinishReason } from "./internal/utilities.ts"
 import { type ChatStreamingResponseChunkData, OpenRouterClient } from "./OpenRouterClient.ts"
 
 // =============================================================================
 // Configuration
 // =============================================================================
+
+/**
+ * ConfigSchema validates OpenRouter language model configuration and defines the Config service type.
+ * Fields derive from the chat request schema without request content (clavia/test/ConfigSchema.test.ts).
+ *
+ * @stability unstable
+ * @category schemas
+ * @since 4.0.0
+ */
+export const ConfigSchema = Schema.Struct({
+  ...Struct.map(
+    Struct.omit(Generated.ChatRequest.fields, [
+      "messages",
+      "response_format",
+      "tools",
+      "tool_choice",
+      "stream",
+      "stream_options"
+    ]),
+    Schema.optionalKey
+  ),
+  /**
+   * Whether to use strict JSON schema validation for structured outputs.
+   *
+   * For schema-backed response formats, defaults to `true` when the selected
+   * schema transformer is the OpenAI transformer (`openai/`, `gpt-`, `o1-`,
+   * `o3-`, and `o4-` model prefixes). Other models, including Anthropic models,
+   * send `strict: null` by default, leaving strictness unspecified. Explicit
+   * `true` or `false` overrides either default. This does not affect tool
+   * strictness.
+   *
+   * **Gotchas**
+   *
+   * Transformer selection is not an endpoint-capability check. Support and
+   * enforcement depend on the selected model and provider. For incompatible
+   * endpoints, set `false` to opt out of the strict default. Strict mode may
+   * restrict supported JSON Schema features; see OpenRouter
+   * [structured output guidance](https://openrouter.ai/docs/guides/features/structured-outputs).
+   */
+  strictJsonSchema: Schema.optional(Schema.Boolean)
+})
+
+/**
+ * ModelConfigSchema validates configuration supplied alongside a model identifier.
+ *
+ * @stability unstable
+ * @category schemas
+ * @since 4.0.0
+ */
+export const ModelConfigSchema = ConfigSchema.mapFields(Struct.omit(["model"]))
 
 /**
  * Context service for OpenRouter language model configuration.
@@ -59,38 +110,9 @@ import { type ChatStreamingResponseChunkData, OpenRouterClient } from "./OpenRou
  * @category services
  * @since 4.0.0
  */
-export class Config extends Context.Service<
-  Config,
-  Simplify<
-    & Partial<
-      Omit<
-        typeof Generated.ChatRequest.Encoded,
-        "messages" | "response_format" | "tools" | "tool_choice" | "stream" | "stream_options"
-      >
-    >
-    & {
-      /**
-       * Whether to use strict JSON schema validation for structured outputs.
-       *
-       * For schema-backed response formats, defaults to `true` when the selected
-       * schema transformer is the OpenAI transformer (`openai/`, `gpt-`, `o1-`,
-       * `o3-`, and `o4-` model prefixes). Other models, including Anthropic models,
-       * send `strict: null` by default, leaving strictness unspecified. Explicit
-       * `true` or `false` overrides either default. This does not affect tool
-       * strictness.
-       *
-       * **Gotchas**
-       *
-       * Transformer selection is not an endpoint-capability check. Support and
-       * enforcement depend on the selected model and provider. For incompatible
-       * endpoints, set `false` to opt out of the strict default. Strict mode may
-       * restrict supported JSON Schema features; see OpenRouter
-       * [structured output guidance](https://openrouter.ai/docs/guides/features/structured-outputs).
-       */
-      readonly strictJsonSchema?: boolean | undefined
-    }
-  >
->()("@effect/ai-openrouter/OpenRouterLanguageModel/Config") {}
+export class Config
+  extends Context.Service<Config, typeof ConfigSchema.Encoded>()("@effect/ai-openrouter/OpenRouterLanguageModel/Config")
+{}
 
 // =============================================================================
 // Provider Options / Metadata

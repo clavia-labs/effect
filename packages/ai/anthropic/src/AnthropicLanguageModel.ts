@@ -31,12 +31,13 @@ import * as Redactable from "effect/Redactable"
 import * as Schema from "effect/Schema"
 import * as SchemaAST from "effect/SchemaAST"
 import * as Stream from "effect/Stream"
+import * as Struct from "effect/Struct"
 import type { Span } from "effect/Tracer"
-import type { Mutable, Simplify } from "effect/Types"
+import type { Mutable } from "effect/Types"
 import { AnthropicClient, type MessageStreamEvent } from "./AnthropicClient.ts"
 import { addGenAIAnnotations } from "./AnthropicTelemetry.ts"
 import * as AnthropicTool from "./AnthropicTool.ts"
-import type * as Generated from "./Generated.ts"
+import * as Generated from "./Generated.ts"
 import * as InternalUtilities from "./internal/utilities.ts"
 
 /**
@@ -51,6 +52,65 @@ export type Model = Extract<(typeof Generated.Model)["members"][number], { reado
 // =============================================================================
 // Configuration
 // =============================================================================
+
+/**
+ * ConfigSchema validates Anthropic language model configuration and defines the Config service type.
+ * Fields derive from the Messages request schema without request content; `output_config.effort` uses the generated effort levels (clavia/test/ConfigSchema.test.ts).
+ *
+ * @stability unstable
+ * @category schemas
+ * @since 4.0.0
+ */
+export const ConfigSchema = Schema.Struct({
+  ...Struct.map(
+    Struct.omit(Generated.BetaCreateMessageParams.fields, [
+      "messages",
+      "output_config",
+      "tools",
+      "tool_choice",
+      "stream"
+    ]),
+    Schema.optionalKey
+  ),
+  output_config: Schema.optionalKey(
+    Schema.Struct({ effort: Schema.optionalKey(Schema.NullOr(Generated.BetaEffortLevel)) })
+  ),
+  /**
+   * Disables Claude's ability to use multiple tools to respond to a query.
+   */
+  disableParallelToolCalls: Schema.optional(Schema.Boolean),
+  /**
+   * Whether the model supports native structured outputs.
+   *
+   * Overrides automatic capability detection based on the model identifier.
+   */
+  structuredOutputs: Schema.optional(Schema.Boolean),
+  /**
+   * Overrides model detection for mid-conversation system messages.
+   * Set to `false` to send all instructions in the top-level `system` field.
+   *
+   * @see https://platform.claude.com/docs/en/build-with-claude/mid-conversation-system-messages
+   */
+  midConversationSystemMessages: Schema.optional(Schema.Boolean),
+  /**
+   * Whether to use strict JSON schema validation for tool calls.
+   *
+   * **Details**
+   *
+   * Only applies to models that support structured outputs. Defaults to
+   * `true` when structured outputs are supported.
+   */
+  strictJsonSchema: Schema.optional(Schema.Boolean)
+})
+
+/**
+ * ModelConfigSchema validates configuration supplied alongside a model identifier.
+ *
+ * @stability unstable
+ * @category schemas
+ * @since 4.0.0
+ */
+export const ModelConfigSchema = ConfigSchema.mapFields(Struct.omit(["model"]))
 
 /**
  * Context service for Anthropic language model configuration.
@@ -70,48 +130,9 @@ export type Model = Extract<(typeof Generated.Model)["members"][number], { reado
  * @category services
  * @since 4.0.0
  */
-export class Config extends Context.Service<
-  Config,
-  Simplify<
-    & Partial<
-      Omit<
-        typeof Generated.BetaCreateMessageParams.Encoded,
-        "messages" | "output_config" | "tools" | "tool_choice" | "stream"
-      >
-    >
-    & {
-      readonly output_config?: {
-        readonly effort?: "low" | "medium" | "high" | null
-      }
-      /**
-       * Disables Claude's ability to use multiple tools to respond to a query.
-       */
-      readonly disableParallelToolCalls?: boolean | undefined
-      /**
-       * Whether the model supports native structured outputs.
-       *
-       * Overrides automatic capability detection based on the model identifier.
-       */
-      readonly structuredOutputs?: boolean | undefined
-      /**
-       * Overrides model detection for mid-conversation system messages.
-       * Set to `false` to send all instructions in the top-level `system` field.
-       *
-       * @see https://platform.claude.com/docs/en/build-with-claude/mid-conversation-system-messages
-       */
-      readonly midConversationSystemMessages?: boolean | undefined
-      /**
-       * Whether to use strict JSON schema validation for tool calls.
-       *
-       * **Details**
-       *
-       * Only applies to models that support structured outputs. Defaults to
-       * `true` when structured outputs are supported.
-       */
-      readonly strictJsonSchema?: boolean | undefined
-    }
-  >
->()("@effect/ai-anthropic/AnthropicLanguageModel/Config") {}
+export class Config
+  extends Context.Service<Config, typeof ConfigSchema.Encoded>()("@effect/ai-anthropic/AnthropicLanguageModel/Config")
+{}
 
 // =============================================================================
 // Provider Options / Metadata

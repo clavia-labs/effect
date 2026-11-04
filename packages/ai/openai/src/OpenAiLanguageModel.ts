@@ -31,12 +31,13 @@ import * as Redactable from "effect/Redactable"
 import * as Schema from "effect/Schema"
 import * as AST from "effect/SchemaAST"
 import * as Stream from "effect/Stream"
+import * as Struct from "effect/Struct"
 import type { Span } from "effect/Tracer"
-import type { DeepMutable, Mutable, Simplify } from "effect/Types"
+import type { DeepMutable, Mutable } from "effect/Types"
 import * as Generated from "./Generated.ts"
 import * as InternalUtilities from "./internal/utilities.ts"
 import { OpenAiClient, OpenAiSocket } from "./OpenAiClient.ts"
-import type * as OpenAiSchema from "./OpenAiSchema.ts"
+import * as OpenAiSchema from "./OpenAiSchema.ts"
 import { addGenAIAnnotations } from "./OpenAiTelemetry.ts"
 import type * as OpenAiTool from "./OpenAiTool.ts"
 
@@ -64,6 +65,81 @@ type PromptCacheBreakpoint = { readonly mode: "explicit" }
 // =============================================================================
 
 /**
+ * ConfigSchema validates OpenAI language model configuration and defines the Config service type.
+ * Fields derive from the Responses request schema without request content (clavia/test/ConfigSchema.test.ts).
+ *
+ * @stability unstable
+ * @category schemas
+ * @since 4.0.0
+ */
+export const ConfigSchema = Schema.Struct({
+  ...Struct.map(
+    Struct.omit(OpenAiSchema.CreateResponse.fields, ["input", "tools", "tool_choice", "stream", "text"]),
+    Schema.optionalKey
+  ),
+  /**
+   * File ID prefixes used to identify file IDs in Responses API.
+   * When undefined, all file data is treated as base64 content.
+   *
+   * Examples:
+   * - OpenAI: ['file-'] for IDs like 'file-abc123'
+   * - Azure OpenAI: ['assistant-'] for IDs like 'assistant-abc123'
+   */
+  fileIdPrefixes: Schema.optional(Schema.Array(Schema.String)),
+  /**
+   * Configuration options for a text response from the model.
+   */
+  text: Schema.optional(Schema.Struct({
+    /**
+     * Constrains the verbosity of the model's response. Lower values will
+     * result in more concise responses, while higher values will result in
+     * more verbose responses.
+     *
+     * Defaults to `"medium"`.
+     */
+    verbosity: Schema.optional(Schema.Literals(["low", "medium", "high"]))
+  })),
+  /**
+   * Whether to use strict JSON schema validation.
+   *
+   * Defaults to `true`.
+   */
+  strictJsonSchema: Schema.optional(Schema.Boolean),
+  /**
+   * Whether stored response items should be sent as item references.
+   *
+   * Set to `false` for OpenAI-compatible providers that support response
+   * storage and `previous_response_id`, but require historical assistant
+   * content to be serialized inline.
+   *
+   * Defaults to `true` when `store` is `true`.
+   */
+  useItemReferences: Schema.optional(Schema.Boolean),
+  /**
+   * Override reasoning model detection. Reasoning models use the `developer`
+   * role for system prompts and request `reasoning.encrypted_content` when
+   * item references are disabled or a WebSocket connection is used.
+   *
+   * Defaults to `true` except for `gpt-3*`, `gpt-4*`, `chatgpt-*`,
+   * `chat-latest`, and `gpt-<version>-chat*`. Fine-tuned `ft:` models follow
+   * their base model.
+   *
+   * Set to `false` for deployments that do not support these defaults.
+   * Explicit `include` values are still preserved.
+   */
+  reasoningModel: Schema.optional(Schema.Boolean)
+})
+
+/**
+ * ModelConfigSchema validates configuration supplied alongside a model identifier.
+ *
+ * @stability unstable
+ * @category schemas
+ * @since 4.0.0
+ */
+export const ModelConfigSchema = ConfigSchema.mapFields(Struct.omit(["model"]))
+
+/**
  * Context service for OpenAI language model configuration.
  *
  * **When to use**
@@ -84,70 +160,9 @@ type PromptCacheBreakpoint = { readonly mode: "explicit" }
  * @category services
  * @since 4.0.0
  */
-export class Config extends Context.Service<
-  Config,
-  Simplify<
-    & Partial<
-      Omit<
-        typeof OpenAiSchema.CreateResponse.Encoded,
-        "input" | "tools" | "tool_choice" | "stream" | "text"
-      >
-    >
-    & {
-      /**
-       * File ID prefixes used to identify file IDs in Responses API.
-       * When undefined, all file data is treated as base64 content.
-       *
-       * Examples:
-       * - OpenAI: ['file-'] for IDs like 'file-abc123'
-       * - Azure OpenAI: ['assistant-'] for IDs like 'assistant-abc123'
-       */
-      readonly fileIdPrefixes?: ReadonlyArray<string> | undefined
-      /**
-       * Configuration options for a text response from the model.
-       */
-      readonly text?: {
-        /**
-         * Constrains the verbosity of the model's response. Lower values will
-         * result in more concise responses, while higher values will result in
-         * more verbose responses.
-         *
-         * Defaults to `"medium"`.
-         */
-        readonly verbosity?: "low" | "medium" | "high" | undefined
-      } | undefined
-      /**
-       * Whether to use strict JSON schema validation.
-       *
-       * Defaults to `true`.
-       */
-      readonly strictJsonSchema?: boolean | undefined
-      /**
-       * Whether stored response items should be sent as item references.
-       *
-       * Set to `false` for OpenAI-compatible providers that support response
-       * storage and `previous_response_id`, but require historical assistant
-       * content to be serialized inline.
-       *
-       * Defaults to `true` when `store` is `true`.
-       */
-      readonly useItemReferences?: boolean | undefined
-      /**
-       * Override reasoning model detection. Reasoning models use the `developer`
-       * role for system prompts and request `reasoning.encrypted_content` when
-       * item references are disabled or a WebSocket connection is used.
-       *
-       * Defaults to `true` except for `gpt-3*`, `gpt-4*`, `chatgpt-*`,
-       * `chat-latest`, and `gpt-<version>-chat*`. Fine-tuned `ft:` models follow
-       * their base model.
-       *
-       * Set to `false` for deployments that do not support these defaults.
-       * Explicit `include` values are still preserved.
-       */
-      readonly reasoningModel?: boolean | undefined
-    }
-  >
->()("@effect/ai-openai/OpenAiLanguageModel/Config") {}
+export class Config
+  extends Context.Service<Config, typeof ConfigSchema.Encoded>()("@effect/ai-openai/OpenAiLanguageModel/Config")
+{}
 
 // =============================================================================
 // Provider Options / Metadata

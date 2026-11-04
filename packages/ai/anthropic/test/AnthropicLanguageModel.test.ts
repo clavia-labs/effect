@@ -2614,6 +2614,13 @@ describe("AnthropicLanguageModel", () => {
       usage: messageUsage(outputTokensDetails)
     })
 
+    it("accepts a thinking display in the model configuration", () => {
+      const config = Schema.decodeUnknownSync(AnthropicLanguageModel.ModelConfigSchema)({
+        thinking: { type: "adaptive", display: "summarized" }
+      })
+      assert.deepStrictEqual(config.thinking, { type: "adaptive", display: "summarized" })
+    })
+
     for (
       const thinking of [
         { type: "adaptive", display: "summarized" },
