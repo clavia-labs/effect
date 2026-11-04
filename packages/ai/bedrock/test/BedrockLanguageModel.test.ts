@@ -12,9 +12,10 @@ const collectResponse = <Tools extends Record<string, Tool.Any>>(
   prompt: Prompt.RawInput,
   toolkit: Toolkit.Toolkit<Tools>,
   _observer?: undefined,
-  responseFormat?: LanguageModel.ProviderOptions["responseFormat"]
+  responseFormat?: LanguageModel.ProviderOptions["responseFormat"],
+  toolCallValidation: "strict" | "deferred" = "deferred"
 ) =>
-  LanguageModel.streamText({ prompt, toolkit, disableToolCallResolution: true }).pipe(
+  LanguageModel.streamText({ prompt, toolkit, disableToolCallResolution: true, toolCallValidation }).pipe(
     (stream) => responseFormat === undefined ? stream : Stream.provideService(stream, ResponseFormat, responseFormat),
     Stream.runCollect,
     Effect.flatMap((parts) =>
@@ -211,14 +212,11 @@ for (const input of [undefined, "", "{}", "{"] as const) {
       return
     }
     if (outcome._tag === "Failure") throw outcome.failure
-    expect(outcome.success.parts.filter((part) => part.type === "tool-call")).toMatchObject([{
-      id: "empty",
-      params: {}
-    }])
-    expect(outcome.success.parts.find((part) => part.type === "error")?.error).toMatchObject({
-      _tag: "ToolCallValidationError",
-      id: "read"
-    })
+    expect(outcome.success.parts.filter((part) => part.type === "tool-call")).toMatchObject([
+      { id: "empty", params: {} },
+      { id: "read", params: {} }
+    ])
+    expect(outcome.success.parts.some((part) => part.type === "error")).toBe(false)
   })
 }
 
@@ -317,11 +315,8 @@ for (const interleaved of [false, true]) {
         }).pipe(Effect.provide(layer.pipe(Layer.provide(FetchHttpClient.layer))))
       )
     const first = await run("Read")
-    expect(first.parts.filter((part) => part.type === "tool-call").map((part) => part.id)).toEqual(["a", "c"])
-    expect(first.parts.find((part) => part.type === "error")?.error).toMatchObject({
-      _tag: "ToolCallValidationError",
-      id: "b"
-    })
+    expect(first.parts.filter((part) => part.type === "tool-call").map((part) => part.id)).toEqual(["a", "b", "c"])
+    expect(first.parts.some((part) => part.type === "error")).toBe(false)
     expect(first.parts.find((part) => part.type === "finish")).toMatchObject({
       usage: { inputTokens: { total: 10 }, outputTokens: { total: 5 } }
     })
@@ -331,12 +326,12 @@ for (const interleaved of [false, true]) {
         restored,
         Prompt.make([{
           role: "tool",
-          content: ["a", "c"].map((id) => ({
+          content: ["a", "b", "c"].map((id) => ({
             type: "tool-result" as const,
             id,
             name: "read",
-            result: "contents",
-            isFailure: false
+            result: id === "b" ? "invalid parameters" : "contents",
+            isFailure: id === "b"
           }))
         }])
       )
@@ -344,11 +339,12 @@ for (const interleaved of [false, true]) {
     expect(inputs[1]?.messages?.find((message) => message.role === "assistant")?.content).toMatchObject([
       { reasoningContent: { reasoningText: { text: "Check", signature: "signed" } } },
       { reasoningContent: { redactedContent: new Uint8Array([1, 2, 3]) } },
-      ...["a", "c"].map((id) => ({ toolUse: { toolUseId: id } }))
+      ...["a", "b", "c"].map((id) => ({ toolUse: { toolUseId: id } }))
     ])
-    expect(inputs[1]?.messages?.at(-1)?.content?.[1]).toMatchObject({
-      toolResult: { toolUseId: "c", status: "success" }
-    })
+    expect(inputs[1]?.messages?.at(-1)?.content?.slice(1)).toMatchObject([
+      { toolResult: { toolUseId: "b", status: "error" } },
+      { toolResult: { toolUseId: "c", status: "success" } }
+    ])
     expect(inputs[0]).toMatchObject({
       additionalModelRequestFields: { thinking: { type: "enabled", budget_tokens: 1024 } },
       outputConfig: { textFormat: { type: "json_schema" } }
@@ -471,8 +467,8 @@ for (const corruption of ["none", "checksum", "truncated"] as const) {
     }
     if (outcome._tag === "Failure") throw outcome.failure
     const result = outcome.success
-    expect(result.parts.filter((part) => part.type === "tool-call").map((part) => part.id)).toEqual(["a", "c"])
-    expect(result.parts.find((part) => part.type === "error")?.error).toMatchObject({ id: "b" })
+    expect(result.parts.filter((part) => part.type === "tool-call").map((part) => part.id)).toEqual(["a", "b", "c"])
+    expect(result.parts.some((part) => part.type === "error")).toBe(false)
   })
 }
 
@@ -521,10 +517,11 @@ for (const mode of ["default-validation", "provider-validation", "throttle"] as 
       })
     )
     const outcome = await Effect.runPromise(
-      collectResponse("Read", selected).pipe(
-        Effect.provide(layer.pipe(Layer.provide(FetchHttpClient.layer))),
-        Effect.result
-      )
+      collectResponse("Read", selected, undefined, undefined, mode === "default-validation" ? "strict" : "deferred")
+        .pipe(
+          Effect.provide(layer.pipe(Layer.provide(FetchHttpClient.layer))),
+          Effect.result
+        )
     )
     expect(requests).toBe(1)
     expect(outcome._tag).toBe("Failure")
@@ -607,14 +604,12 @@ test("Bedrock retains unknown calls beside valid siblings and usage", async () =
   const { parts } = await Effect.runPromise(
     collectResponse("Read", toolkit).pipe(Effect.provide(layer.pipe(Layer.provide(FetchHttpClient.layer))))
   )
-  expect(parts.filter((part) => part.type === "tool-call").map((part) => part.id)).toEqual(["a", "c"])
-  expect(parts.find((part) => part.type === "error")?.error).toMatchObject({
-    _tag: "ToolCallValidationError",
-    id: "b",
-    name: "packages",
-    params: { path: 123 },
-    cause: { reason: { _tag: "ToolNotFoundError", toolName: "packages", availableTools: ["read"] } }
-  })
+  expect(parts.filter((part) => part.type === "tool-call").map((part) => [part.id, part.name, part.params])).toEqual([
+    ["a", "read", { path: "a" }],
+    ["b", "packages", { path: 123 }],
+    ["c", "read", { path: "c" }]
+  ])
+  expect(parts.some((part) => part.type === "error")).toBe(false)
   expect(parts.find((part) => part.type === "finish")).toMatchObject({
     usage: { inputTokens: { total: 10 }, outputTokens: { total: 5 } }
   })

@@ -5,17 +5,11 @@ import { OpenAiClient as CompatClient, OpenAiLanguageModel as CompatLanguageMode
 import { OpenRouterClient, OpenRouterLanguageModel } from "@tardie/ai-openrouter"
 import { ResponseFormat } from "@tardie/ai/LanguageModel"
 import { Effect, Layer, Redacted, Result, Schema, Stream } from "effect"
-import { LanguageModel, Prompt, Response as AiResponse, Tool, Toolkit } from "effect/ai"
+import { LanguageModel, Prompt, type Response as AiResponse, Tool, Toolkit } from "effect/ai"
 import { HttpClient, type HttpClientError, HttpClientResponse } from "effect/http"
 import { eventsFor, type Provider, type Scenario } from "./utils/streams.ts"
 
 const format = { type: "json", objectName: "answer", schema: Schema.Struct({ answer: Schema.String }) } as const
-const validationError = Schema.Struct({
-  _tag: Schema.Literal("ToolCallValidationError"),
-  id: Schema.String,
-  name: Schema.String,
-  params: Schema.Unknown
-})
 
 const fixture = (
   provider: Provider,
@@ -70,7 +64,12 @@ const fixture = (
       Layer.provide(CompatClient.layer(client))
     )
   const layer = providerLayer.pipe(Layer.provide(Layer.succeed(HttpClient.HttpClient, http)))
-  const stream = (prompt: Prompt.RawInput = "Read", failureMode: "return" | "error" = "return", dynamic = false) =>
+  const stream = (
+    prompt: Prompt.RawInput = "Read",
+    failureMode: "return" | "error" = "return",
+    dynamic = false,
+    toolCallValidation: "strict" | "deferred" = "deferred"
+  ) =>
     LanguageModel.streamText({
       prompt,
       toolkit: Toolkit.make(
@@ -78,7 +77,8 @@ const fixture = (
           ? Tool.dynamic("read", { parameters: Schema.Struct({ path: Schema.String }), failureMode })
           : Tool.make("read", { parameters: Schema.Struct({ path: Schema.String }), failureMode })
       ),
-      disableToolCallResolution: true
+      disableToolCallResolution: true,
+      toolCallValidation
     }).pipe(Stream.provideService(ResponseFormat, format), Stream.provide(layer))
   return { stream, requests }
 }
@@ -89,25 +89,24 @@ for (const provider of ["openai", "anthropic", "compat", "openrouter"] as const)
       Effect.gen(function*() {
         const { stream } = fixture(provider, "invalid")
         const parts = yield* Stream.runCollect(stream("Read", "return", true))
-        assert.deepStrictEqual(parts.filter((part) => part.type === "tool-call").map((part) => part.id), ["a", "c"])
-        assert.strictEqual(parts.filter((part) => part.type === "error").length, 1)
+        assert.deepStrictEqual(parts.filter((part) => part.type === "tool-call").map((part) => part.id), [
+          "a",
+          "b",
+          "c"
+        ])
+        assert.strictEqual(parts.filter((part) => part.type === "error").length, 0)
       }))
 
     for (const segmented of [false, true]) {
-      it.effect(`retains A and C, rejected B, and usage with segmented=${segmented}`, () =>
+      it.effect(`returns A, invalid B, C, and usage with segmented=${segmented}`, () =>
         Effect.gen(function*() {
           const { stream, requests } = fixture(provider, "invalid", segmented)
           const parts = yield* Stream.runCollect(stream())
-          assert.deepStrictEqual(parts.filter((part) => part.type === "tool-call").map((part) => part.id), ["a", "c"])
-          const errors = parts.filter((part) => part.type === "error")
-          assert.strictEqual(errors.length, 1)
-          const error = Schema.decodeUnknownSync(validationError)(errors[0]?.error)
-          assert.deepStrictEqual(error, {
-            _tag: "ToolCallValidationError",
-            id: "b",
-            name: "read",
-            params: { path: 123 }
-          })
+          assert.deepStrictEqual(
+            parts.filter((part) => part.type === "tool-call").map((part) => [part.id, part.params]),
+            [["a", { path: "a" }], ["b", { path: 123 }], ["c", { path: "c" }]]
+          )
+          assert.strictEqual(parts.filter((part) => part.type === "error").length, 0)
           const finish = parts.find((part) => part.type === "finish")
           assert.strictEqual(finish?.reason, "tool-calls")
           assert.strictEqual(finish?.usage.inputTokens.total, 10)
@@ -146,10 +145,10 @@ for (const provider of ["openai", "anthropic", "compat", "openrouter"] as const)
         }))
     }
 
-    it.effect("keeps default validation failure fatal", () =>
+    it.effect("keeps strict validation failure fatal", () =>
       Effect.gen(function*() {
         const { stream } = fixture(provider, "invalid")
-        const result = yield* Effect.result(Stream.runCollect(stream("Read", "error")))
+        const result = yield* Effect.result(Stream.runCollect(stream("Read", "error", false, "strict")))
         assert.strictEqual(result._tag, "Failure")
         if (result._tag === "Failure") assert.strictEqual(result.failure.reason._tag, "InvalidOutputError")
       }))
@@ -199,16 +198,7 @@ for (const provider of ["openai", "anthropic", "compat", "openrouter"] as const)
         Effect.gen(function*() {
           const { stream, requests } = fixture(provider, "invalid", false, field)
           const parts = yield* Stream.runCollect(stream())
-          const prompt = Prompt.fromResponseParts(parts.map((part) => {
-            if (part.type !== "error") return part
-            const error = Schema.decodeUnknownSync(validationError)(part.error)
-            return AiResponse.makePart("tool-call", {
-              id: error.id,
-              name: "read",
-              params: error.params,
-              providerExecuted: false
-            })
-          }))
+          const prompt = Prompt.fromResponseParts(parts)
           const restored = Schema.decodeUnknownSync(Prompt.Prompt)(JSON.parse(JSON.stringify(prompt)))
           const results = Prompt.make([{
             role: "tool",

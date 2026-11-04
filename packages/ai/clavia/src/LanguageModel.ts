@@ -4,12 +4,9 @@
  * @stability unstable
  * @since 0.0.1
  */
-import * as AiError from "effect/ai/AiError"
 import * as LanguageModel from "effect/ai/LanguageModel"
-import type * as Response from "effect/ai/Response"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
-import * as Schema from "effect/Schema"
 import * as Stream from "effect/Stream"
 
 /**
@@ -33,69 +30,16 @@ const optionsWithFormat = (options: LanguageModel.ProviderOptions) =>
         : options
   )
 
-const DeferredToolCalls = Context.Reference<boolean>("@tardie/ai/DeferredToolCalls", { defaultValue: () => false })
-
-const validateToolCall = (options: LanguageModel.ProviderOptions) =>
-  Effect.fnUntraced(function*(part: Response.StreamPartEncoded) {
-    if (part.type !== "tool-call" || part.providerExecuted === true) return part
-    const tool = options.tools.find((tool) => tool.name === part.name)
-    if (tool !== undefined && tool.failureMode !== "return") return part
-    const error = tool === undefined
-      ? AiError.make({
-        module: "LanguageModel",
-        method: "validateToolCall",
-        reason: new AiError.ToolNotFoundError({
-          toolName: part.name,
-          availableTools: options.tools.map((tool) => tool.name)
-        })
-      })
-      : yield* Effect.gen(function*() {
-        const result = yield* Effect.result(
-          Schema.decodeUnknownEffect(Schema.toEncoded(tool.parametersSchema))(part.params)
-        )
-        return result._tag === "Success" ? undefined : AiError.make({
-          module: "LanguageModel",
-          method: "validateToolCall",
-          reason: new AiError.ToolParameterValidationError({ toolName: part.name, description: result.failure.message })
-        })
-      })
-    if (error === undefined) return part
-    return {
-      type: "error",
-      error: {
-        _tag: "ToolCallValidationError",
-        id: part.id,
-        name: part.name,
-        params: part.params,
-        cause: Schema.encodeSync(AiError.AiError)(error),
-        providerMetadata: part.metadata ?? {}
-      }
-    } satisfies Response.StreamPartEncoded
-  })
-
 /**
- * make constructs an upstream LanguageModel with scoped formats and deferred tool validation.
- * Deferred streaming calls retain return-mode validation errors without executing tools (test/LanguageModel.test.ts).
+ * make constructs an upstream LanguageModel that applies a scoped ResponseFormat to text generation (test/LanguageModel.test.ts).
  *
  * @category constructors
  * @stability unstable
  * @since 0.0.1
  */
-export const make: typeof LanguageModel.make = Effect.fnUntraced(function*(hooks) {
-  const model = yield* LanguageModel.make({
+export const make: typeof LanguageModel.make = (hooks) =>
+  LanguageModel.make({
     ...hooks,
     generateText: (options) => Effect.flatMap(optionsWithFormat(options), hooks.generateText),
-    streamText: (options) =>
-      Stream.unwrap(Effect.gen(function*() {
-        const deferred = yield* DeferredToolCalls
-        const stream = hooks.streamText(yield* optionsWithFormat(options))
-        return deferred ? Stream.mapEffect(stream, validateToolCall(options)) : stream
-      }))
+    streamText: (options) => Stream.unwrap(Effect.map(optionsWithFormat(options), hooks.streamText))
   })
-  // streamText preserves native overloads while supplying a request-local mode (test/LanguageModel.test.ts).
-  const streamText = ((options: Parameters<typeof model.streamText>[0]) =>
-    model.streamText(options).pipe(
-      Stream.provideService(DeferredToolCalls, options.disableToolCallResolution === true)
-    )) as typeof model.streamText
-  return { ...model, streamText }
-})

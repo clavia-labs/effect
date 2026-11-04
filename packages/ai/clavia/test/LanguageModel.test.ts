@@ -82,12 +82,13 @@ it.effect("keeps managed and deferred validation isolated without executing defe
         ).pipe(Stream.tap(() => Effect.yieldNow))
     })
     const [deferred, managed] = yield* Effect.all([
-      model.streamText({ prompt: "deferred", toolkit, disableToolCallResolution: true }).pipe(Stream.runCollect),
+      model.streamText({ prompt: "deferred", toolkit, disableToolCallResolution: true, toolCallValidation: "deferred" })
+        .pipe(Stream.runCollect),
       model.streamText({ prompt: "managed", toolkit }).pipe(Stream.runCollect)
     ], { concurrency: "unbounded" }).pipe(Effect.provide(handlers))
     assert.deepStrictEqual(executed.sort(), ["a", "c"])
-    assert.deepStrictEqual(deferred.filter((part) => part.type === "tool-call").map((part) => part.id), ["a", "c"])
-    assert.strictEqual(deferred.filter((part) => part.type === "error").length, 1)
+    assert.deepStrictEqual(deferred.filter((part) => part.type === "tool-call").map((part) => part.id), ["a", "b", "c"])
+    assert.strictEqual(deferred.filter((part) => part.type === "error").length, 0)
     assert.strictEqual(deferred.filter((part) => part.type === "tool-result").length, 0)
     assert.strictEqual(managed.filter((part) => part.type === "error").length, 0)
     assert.deepStrictEqual(
@@ -103,15 +104,16 @@ it.effect("returns unknown deferred calls without changing managed resolution", 
       streamText: () => Stream.make({ type: "tool-call", id: "unknown", name: "packages", params: {} })
     })
     const toolkit = Toolkit.make(Tool.make("execute", { parameters: Schema.Struct({ code: Schema.String }) }))
-    const parts = yield* model.streamText({ prompt: "Read", toolkit, disableToolCallResolution: true }).pipe(
-      Stream.runCollect
-    )
-    assert.strictEqual(parts.length, 1)
-    assert.strictEqual(parts[0]?.type, "error")
-    if (parts[0]?.type === "error") {
-      assert.match(JSON.stringify(parts[0].error), /ToolNotFoundError/)
-      assert.match(JSON.stringify(parts[0].error), /execute/)
-    }
+    const parts = yield* model.streamText({
+      prompt: "Read",
+      toolkit,
+      disableToolCallResolution: true,
+      toolCallValidation: "deferred"
+    }).pipe(Stream.runCollect)
+    assert.deepStrictEqual(parts.map((part) => [part.type, part.type === "tool-call" ? part.name : undefined]), [[
+      "tool-call",
+      "packages"
+    ]])
     const managed = yield* model.streamText({ prompt: "Read", toolkit }).pipe(
       Stream.runCollect,
       Effect.provide(toolkit.toLayer({ execute: () => Effect.die("unknown call must not execute") })),
