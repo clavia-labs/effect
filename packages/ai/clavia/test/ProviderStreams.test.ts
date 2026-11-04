@@ -476,10 +476,7 @@ for (const provider of ["openai", "anthropic", "compat", "openrouter"] as const)
     Effect.gen(function*() {
       const { requests, stream } = fixture(provider, "valid")
       const image = Prompt.filePart({ mediaType: "image/png", data: new Uint8Array([1, 2, 3]), fileName: "screen.png" })
-      const result = {
-        type: "content",
-        value: [Prompt.textPart({ text: "Before" }), image, Prompt.textPart({ text: "After" })]
-      }
+      const modelOutput = [Prompt.textPart({ text: "Before" }), image, Prompt.textPart({ text: "After" })]
       const prompt = Prompt.fromMessages([
         Prompt.makeMessage("assistant", {
           content: [
@@ -490,7 +487,14 @@ for (const provider of ["openai", "anthropic", "compat", "openrouter"] as const)
         ...["first", "second"].map((id) =>
           Prompt.makeMessage("tool", {
             content: [
-              Prompt.toolResultPart({ id, name: "read", result, isFailure: false, providerExecuted: false })
+              Prompt.toolResultPart({
+                id,
+                name: "read",
+                result: "Before\nAfter",
+                modelOutput,
+                isFailure: false,
+                providerExecuted: false
+              })
             ]
           })
         )
@@ -573,16 +577,14 @@ for (const provider of ["openai", "anthropic"] as const) {
             id: "pdf",
             name: "read",
             isFailure: false,
-            result: {
-              type: "content",
-              value: [
-                Prompt.filePart({
-                  mediaType: "application/pdf",
-                  fileName: "report.pdf",
-                  data: new Uint8Array([1, 2, 3])
-                })
-              ]
-            }
+            result: "report.pdf",
+            modelOutput: [
+              Prompt.filePart({
+                mediaType: "application/pdf",
+                fileName: "report.pdf",
+                data: new Uint8Array([1, 2, 3])
+              })
+            ]
           }]
         }
       ])

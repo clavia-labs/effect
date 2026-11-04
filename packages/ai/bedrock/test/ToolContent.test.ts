@@ -17,10 +17,8 @@ for (const mode of ["native", "pdf", "text-history", "other-model"] as const) {
           type: "tool-result",
           id: "capture",
           name: "read",
-          result: {
-            type: "content",
-            value: [Prompt.textPart({ text: "Screenshot" }), file]
-          },
+          result: "Screenshot",
+          modelOutput: [Prompt.textPart({ text: "Screenshot" }), file],
           isFailure: false
         }]
       }

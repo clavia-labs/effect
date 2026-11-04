@@ -16,9 +16,10 @@ import type {
 } from "@aws-sdk/client-bedrock-runtime"
 import * as ProviderLanguageModel from "@tardie/ai"
 import * as ToolResult from "@tardie/ai/ToolResult"
-import type { Prompt, Response } from "effect/ai"
+import type { Response } from "effect/ai"
 import * as AiError from "effect/ai/AiError"
 import * as LanguageModel from "effect/ai/LanguageModel"
+import * as Prompt from "effect/ai/Prompt"
 import * as Tool from "effect/ai/Tool"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
@@ -361,7 +362,9 @@ const bedrockRequest = (
           return [{
             text: `<tool_result id="${escapeXml(part.id)}" status="${part.isFailure ? "error" : "success"}">\n${
               escapeXmlText(
-                ToolResult.isContent(part.result) ? ToolResult.text(part.result) : JSON.stringify(part.result)
+                part.modelOutput === undefined
+                  ? JSON.stringify(part.result)
+                  : Prompt.toolModelOutputToText(part.modelOutput)
               )
             }\n</tool_result>`
           }]
@@ -497,9 +500,9 @@ const toBedrockPart = (
         toolResult: {
           toolUseId: part.id,
           status: part.isFailure ? "error" : "success",
-          content: ToolResult.isContent(part.result)
-            ? part.result.value.map((item) => item.type === "text" ? { text: item.text } : bedrockFile(item))
-            : [{ text: ToolResult.text(part.result) }]
+          content: part.modelOutput === undefined
+            ? [{ text: typeof part.result === "string" ? part.result : JSON.stringify(part.result) }]
+            : part.modelOutput.map((item) => item.type === "text" ? { text: item.text } : bedrockFile(item))
         }
       }
     default:
