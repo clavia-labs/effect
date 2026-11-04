@@ -1,4 +1,4 @@
-import { AnthropicLanguageModel, type Generated } from "@effect/ai-anthropic"
+import { AnthropicLanguageModel, type Generated } from "@tardie/ai-anthropic"
 import { describe, expect, it } from "tstyche"
 
 declare const acceptsKnownModel: (model: AnthropicLanguageModel.Model) => void

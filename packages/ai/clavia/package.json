@@ -1,0 +1,47 @@
+{
+  "name": "@tardie/ai",
+  "version": "0.0.5",
+  "type": "module",
+  "license": "MIT",
+  "description": "Shared provider construction for Clavia Effect AI providers.",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/clavia-labs/effect.git",
+    "directory": "packages/ai/clavia"
+  },
+  "sideEffects": [],
+  "exports": {
+    ".": "./src/LanguageModel.ts",
+    "./LanguageModel": "./src/LanguageModel.ts",
+    "./package.json": "./package.json",
+    "./ToolResult": "./src/ToolResult.ts"
+  },
+  "files": [
+    "src/**/*.ts",
+    "dist/**/*.js",
+    "dist/**/*.js.map",
+    "dist/**/*.d.ts",
+    "dist/**/*.d.ts.map"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true,
+    "exports": {
+      ".": "./dist/LanguageModel.js",
+      "./LanguageModel": "./dist/LanguageModel.js",
+      "./package.json": "./package.json",
+      "./ToolResult": "./dist/ToolResult.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -b tsconfig.json && pnpm babel",
+    "babel": "babel dist --plugins annotate-pure-calls --out-dir dist --source-maps",
+    "check": "tsc -b tsconfig.json"
+  },
+  "devDependencies": {
+    "effect": "workspace:^"
+  },
+  "peerDependencies": {
+    "effect": "4.1.2"
+  }
+}

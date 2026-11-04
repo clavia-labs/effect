@@ -1,5 +1,5 @@
-import { OpenRouterClient } from "@effect/ai-openrouter"
-import * as Errors from "@effect/ai-openrouter/internal/errors"
+import { OpenRouterClient } from "@tardie/ai-openrouter"
+import * as Errors from "@tardie/ai-openrouter/internal/errors"
 import { assert, describe, it } from "@effect/vitest"
 import { Cause, Context, Effect, Exit, Layer, Option, Redacted, type Schema } from "effect"
 import { HttpClient, type HttpClientError, type HttpClientRequest, HttpClientResponse } from "effect/http"

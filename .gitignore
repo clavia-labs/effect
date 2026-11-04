@@ -39,3 +39,5 @@ scratchpad/**/*
 
 # Agent config
 opencode.json
+
+/artifacts/clavia/

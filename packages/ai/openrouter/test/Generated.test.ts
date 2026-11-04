@@ -1,4 +1,4 @@
-import { Generated, OpenRouterClient, OpenRouterLanguageModel } from "@effect/ai-openrouter"
+import { Generated, OpenRouterClient, OpenRouterLanguageModel } from "@tardie/ai-openrouter"
 import { assert, describe, it } from "@effect/vitest"
 import { deepStrictEqual } from "@effect/vitest/utils"
 import { Effect, Schema, Stream } from "effect"

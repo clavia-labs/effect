@@ -1,4 +1,4 @@
-import { OpenAiTelemetry } from "@effect/ai-openai-compat"
+import { OpenAiTelemetry } from "@tardie/ai-openai-compat"
 import { assert, describe, it } from "@effect/vitest"
 import { Effect } from "effect"
 

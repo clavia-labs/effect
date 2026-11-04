@@ -4,7 +4,7 @@
  * Define tools with schemas, group them into toolkits, implement handlers,
  * and pass them to `LanguageModel.generateText`.
  */
-import { OpenAiClient, OpenAiLanguageModel, OpenAiTool } from "@effect/ai-openai"
+import { OpenAiClient, OpenAiLanguageModel, OpenAiTool } from "@tardie/ai-openai"
 import { Config, Context, Effect, Layer, Schema } from "effect"
 import { AiError, LanguageModel, Tool, Toolkit } from "effect/ai"
 import { FetchHttpClient } from "effect/http"
@@ -199,7 +199,7 @@ export class ProductAssistant extends Context.Service<ProductAssistant, {
 // that run server-side. Use `Tool.providerDefined` or the pre-built
 // definitions from provider packages.
 
-// OpenAI's web search tool is pre-defined in `@effect/ai-openai`. Calling it
+// OpenAI's web search tool is pre-defined in `@tardie/ai-openai`. Calling it
 // produces a tool instance that can be merged into any toolkit.
 const webSearch = OpenAiTool.WebSearch({
   search_context_size: "medium"

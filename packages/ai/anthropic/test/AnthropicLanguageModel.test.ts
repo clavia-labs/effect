@@ -1,4 +1,4 @@
-import { AnthropicClient, AnthropicLanguageModel, AnthropicTool } from "@effect/ai-anthropic"
+import { AnthropicClient, AnthropicLanguageModel, AnthropicTool } from "@tardie/ai-anthropic"
 import { assert, describe, it } from "@effect/vitest"
 import { assertDefined } from "@effect/vitest/utils"
 import { Cause, Effect, Exit, Layer, Option, Redacted, Schema, Stream, Tracer } from "effect"

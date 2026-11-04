@@ -1,4 +1,4 @@
-import { OpenAiClient, OpenAiLanguageModel } from "@effect/ai-openai-compat"
+import { OpenAiClient, OpenAiLanguageModel } from "@tardie/ai-openai-compat"
 import { assert, describe, it } from "@effect/vitest"
 import { Effect, Layer, Redacted, Ref, Schema, Stream } from "effect"
 import { type AiError, LanguageModel, Prompt, Tool, Toolkit } from "effect/ai"

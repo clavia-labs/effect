@@ -1,4 +1,4 @@
-import * as OpenRouterSchema from "@effect/ai-openrouter/OpenRouterSchema"
+import * as OpenRouterSchema from "@tardie/ai-openrouter/OpenRouterSchema"
 import { assert, describe, it } from "@effect/vitest"
 import { Schema } from "effect"
 

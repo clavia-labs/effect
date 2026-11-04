@@ -1,4 +1,4 @@
-import { OpenRouterClient, OpenRouterConfig, OpenRouterDecisionModel } from "@effect/ai-openrouter"
+import { OpenRouterClient, OpenRouterConfig, OpenRouterDecisionModel } from "@tardie/ai-openrouter"
 import { assert, describe, it } from "@effect/vitest"
 import { Effect, Layer, Redacted, Result, Schema } from "effect"
 import { Decision, DecisionModel, Model } from "effect/ai"

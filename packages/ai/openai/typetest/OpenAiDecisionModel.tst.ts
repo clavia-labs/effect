@@ -1,4 +1,4 @@
-import { type OpenAiClient, OpenAiDecisionModel } from "@effect/ai-openai"
+import { type OpenAiClient, OpenAiDecisionModel } from "@tardie/ai-openai"
 import { Effect, type Layer, Schema } from "effect"
 import { Decision, DecisionModel, type Model } from "effect/ai"
 import { describe, expect, it } from "tstyche"
