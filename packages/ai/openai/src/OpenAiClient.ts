@@ -35,6 +35,8 @@ import * as Semaphore from "effect/Semaphore"
 import * as Socket from "effect/socket/Socket"
 import * as Stream from "effect/Stream"
 import * as Errors from "./internal/errors.ts"
+import { DEFAULT_REQUEST_BODY_CHUNK_BYTES } from "./internal/requestBody.ts"
+export { DEFAULT_REQUEST_BODY_CHUNK_BYTES, getRequestBody, setRequestBody } from "./internal/requestBody.ts"
 import { OpenAiConfig } from "./OpenAiConfig.ts"
 import * as OpenAiSchema from "./OpenAiSchema.ts"
 
@@ -60,6 +62,9 @@ export interface Service {
    * The transformed HTTP client used by this service.
    */
   readonly client: HttpClient.HttpClient
+  readonly requestBodyChunkBytes?: number
+  readonly streamFiles?: boolean
+  readonly fileUrlToStream?: FileUrlToStream
 
   /**
    * Create a response using the OpenAI responses endpoint.
@@ -83,6 +88,22 @@ export interface Service {
     ],
     AiError.AiError
   >
+
+  /**
+   * Create a response with a prepared HTTP request body.
+   */
+  readonly createResponseWithBody?: (
+    options: typeof OpenAiSchema.CreateResponse.Encoded,
+    body: HttpBody.HttpBody
+  ) => ReturnType<Service["createResponse"]>
+
+  /**
+   * Create a streaming response with a prepared HTTP request body.
+   */
+  readonly createResponseStreamWithBody?: (
+    options: Omit<typeof OpenAiSchema.CreateResponse.Encoded, "stream">,
+    body: HttpBody.HttpBody
+  ) => ReturnType<Service["createResponseStream"]>
 
   /**
    * Create embeddings using the OpenAI embeddings endpoint.
@@ -128,6 +149,25 @@ export class OpenAiClient extends Context.Service<OpenAiClient, Service>()(
 // =============================================================================
 
 /**
+ * FileUrlToStream resolves selected file URLs to cold byte streams read while the request body is sent.
+ * Returning undefined forwards the URL unchanged. Images become `input_image` data and PDFs `input_file` data (test/StreamingRequest.test.ts).
+ *
+ * @stability unstable
+ * @category options
+ * @since 4.0.0
+ */
+export type FileUrlToStream = (url: URL, mediaType: string) => Stream.Stream<Uint8Array, Error> | undefined
+
+/**
+ * DEFAULT_STREAM_FILES keeps inline file bodies buffered unless explicitly enabled.
+ *
+ * @stability unstable
+ * @category configuration
+ * @since 4.0.0
+ */
+export const DEFAULT_STREAM_FILES = false
+
+/**
  * Options for configuring the OpenAI client.
  *
  * @stability unstable
@@ -135,6 +175,25 @@ export class OpenAiClient extends Context.Service<OpenAiClient, Service>()(
  * @since 4.0.0
  */
 export type Options = {
+  /**
+   * Stream inline image and PDF bytes through the HTTP request body.
+   *
+   * @default false
+   */
+  readonly streamFiles?: boolean | undefined
+
+  /**
+   * Resolve selected file URLs to bytes when the HTTP body is consumed.
+   */
+  readonly fileUrlToStream?: FileUrlToStream | undefined
+
+  /**
+   * Maximum input bytes encoded per streamed request-body chunk.
+   *
+   * @default 49152
+   */
+  readonly requestBodyChunkBytes?: number | undefined
+
   /**
    * The OpenAI API key.
    */
@@ -209,6 +268,10 @@ export const make = Effect.fnUntraced(
   ): Effect.fn.Return<Service, never, HttpClient.HttpClient> {
     const baseClient = yield* HttpClient.HttpClient
     const apiUrl = options.apiUrl ?? "https://api.openai.com/v1"
+    const requestBodyChunkBytes = options.requestBodyChunkBytes ?? DEFAULT_REQUEST_BODY_CHUNK_BYTES
+    if (!Number.isSafeInteger(requestBodyChunkBytes) || requestBodyChunkBytes < 1) {
+      return yield* Effect.die(new RangeError("requestBodyChunkBytes must be a positive safe integer"))
+    }
 
     const httpClient = baseClient.pipe(
       HttpClient.mapRequest(Function.flow(
@@ -247,7 +310,8 @@ export const make = Effect.fnUntraced(
     const decodeResponse = HttpClientResponse.schemaBodyJson(OpenAiSchema.Response)
 
     const createResponse = (
-      payload: typeof OpenAiSchema.CreateResponse.Encoded
+      payload: typeof OpenAiSchema.CreateResponse.Encoded,
+      body?: HttpBody.HttpBody
     ): Effect.Effect<
       [body: typeof OpenAiSchema.Response.Type, response: HttpClientResponse.HttpClientResponse],
       AiError.AiError
@@ -255,7 +319,7 @@ export const make = Effect.fnUntraced(
       resolveHttpClient.pipe(
         Effect.flatMap((client) =>
           client.execute(HttpClientRequest.post("/responses", {
-            body: HttpBody.jsonUnsafe(payload)
+            body: body ?? HttpBody.jsonUnsafe(payload)
           })).pipe(
             Effect.flatMap((response) =>
               decodeResponse(response).pipe(
@@ -302,14 +366,23 @@ export const make = Effect.fnUntraced(
       return [response, stream]
     }
 
-    const createResponseStream: Service["createResponseStream"] = (payload) =>
+    const createResponseStream = (
+      payload: Omit<typeof OpenAiSchema.CreateResponse.Encoded, "stream">,
+      body?: HttpBody.HttpBody
+    ): ReturnType<Service["createResponseStream"]> =>
       Effect.contextWith((services) => {
         const socket = Context.getOrUndefined(services, OpenAiSocket)
-        if (socket) return socket.createResponseStream(payload)
+        if (socket) {
+          return body === undefined ? socket.createResponseStream(payload) : Effect.fail(AiError.make({
+            module: "OpenAiClient",
+            method: "createResponseStream",
+            reason: new AiError.InvalidRequestError({ description: "Streamed request bodies require HTTP transport" })
+          }))
+        }
         return resolveHttpClient.pipe(
           Effect.flatMap((client) =>
             client.execute(HttpClientRequest.post("/responses", {
-              body: HttpBody.jsonUnsafe({ ...payload, stream: true })
+              body: body ?? HttpBody.jsonUnsafe({ ...payload, stream: true })
             })).pipe(
               Effect.map(buildResponseStream),
               Effect.catchTag(
@@ -359,8 +432,13 @@ export const make = Effect.fnUntraced(
 
     return OpenAiClient.of({
       client: httpClient,
-      createResponse,
-      createResponseStream,
+      requestBodyChunkBytes,
+      streamFiles: options.streamFiles ?? DEFAULT_STREAM_FILES,
+      ...(options.fileUrlToStream === undefined ? {} : { fileUrlToStream: options.fileUrlToStream }),
+      createResponse: (payload) => createResponse(payload),
+      createResponseStream: (payload) => createResponseStream(payload),
+      createResponseWithBody: createResponse,
+      createResponseStreamWithBody: createResponseStream,
       createEmbedding,
       createDecisions
     })

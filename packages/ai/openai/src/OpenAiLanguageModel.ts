@@ -35,8 +35,9 @@ import * as Struct from "effect/Struct"
 import type { Span } from "effect/Tracer"
 import type { DeepMutable, Mutable } from "effect/Types"
 import * as Generated from "./Generated.ts"
+import { attachFileStream, DEFAULT_REQUEST_BODY_CHUNK_BYTES, streamedRequestBody } from "./internal/requestBody.ts"
 import * as InternalUtilities from "./internal/utilities.ts"
-import { OpenAiClient, OpenAiSocket } from "./OpenAiClient.ts"
+import { type FileUrlToStream, OpenAiClient, OpenAiSocket } from "./OpenAiClient.ts"
 import * as OpenAiSchema from "./OpenAiSchema.ts"
 import { addGenAIAnnotations } from "./OpenAiTelemetry.ts"
 import type * as OpenAiTool from "./OpenAiTool.ts"
@@ -707,9 +708,18 @@ export const make = Effect.fnUntraced(function*({ model, config: providerConfig 
       readonly config: typeof Config.Service
       readonly options: LanguageModel.ProviderOptions
       readonly toolNameMapper: Tool.NameMapper<Tools>
-    }): Effect.fn.Return<typeof OpenAiSchema.CreateResponse.Encoded, AiError.AiError> {
+    }): Effect.fn.Return<
+      { readonly request: typeof OpenAiSchema.CreateResponse.Encoded; readonly streamed: boolean },
+      AiError.AiError
+    > {
       const include = new Set<typeof OpenAiSchema.IncludeEnum.Encoded>(config.include)
+      const files: FileSources = {
+        enabled: client.streamFiles === true,
+        streamed: false,
+        fileUrlToStream: client.fileUrlToStream
+      }
       const messages = yield* prepareMessages({
+        files,
         config,
         options,
         isReasoningModel: resolveReasoningModel(config),
@@ -744,7 +754,7 @@ export const make = Effect.fnUntraced(function*({ model, config: providerConfig 
       if (tools) request.tools = tools
       if (toolChoice) request.tool_choice = toolChoice
       if (options.previousResponseId) request.previous_response_id = options.previousResponseId
-      return request
+      return { request, streamed: files.streamed }
     }
   )
 
@@ -754,9 +764,17 @@ export const make = Effect.fnUntraced(function*({ model, config: providerConfig 
       function*(options) {
         const config = yield* makeConfig
         const toolNameMapper = new Tool.NameMapper(options.tools)
-        const request = yield* makeRequest({ config, options, toolNameMapper })
+        const { request, streamed } = yield* makeRequest({ config, options, toolNameMapper })
         annotateRequest(options.span, request)
-        const [rawResponse, response] = yield* client.createResponse(request)
+        if (streamed && !client.createResponseWithBody) {
+          return yield* unsupportedStreamedClient("generateText")
+        }
+        const [rawResponse, response] = yield* streamed && client.createResponseWithBody
+          ? client.createResponseWithBody(
+            request,
+            streamedRequestBody(request, client.requestBodyChunkBytes ?? DEFAULT_REQUEST_BODY_CHUNK_BYTES)
+          )
+          : client.createResponse(request)
         annotateResponse(options.span, rawResponse)
         return yield* makeResponse({
           options,
@@ -770,9 +788,20 @@ export const make = Effect.fnUntraced(function*({ model, config: providerConfig 
       function*(options) {
         const config = yield* makeConfig
         const toolNameMapper = new Tool.NameMapper(options.tools)
-        const request = yield* makeRequest({ config, options, toolNameMapper })
+        const { request, streamed } = yield* makeRequest({ config, options, toolNameMapper })
         annotateRequest(options.span, request)
-        const [response, stream] = yield* client.createResponseStream(request)
+        if (streamed && !client.createResponseStreamWithBody) {
+          return yield* unsupportedStreamedClient("streamText")
+        }
+        const [response, stream] = yield* streamed && client.createResponseStreamWithBody
+          ? client.createResponseStreamWithBody(
+            request,
+            streamedRequestBody(
+              { ...request, stream: true },
+              client.requestBodyChunkBytes ?? DEFAULT_REQUEST_BODY_CHUNK_BYTES
+            )
+          )
+          : client.createResponseStream(request)
         return yield* makeStreamResponse({
           stream,
           response,
@@ -867,14 +896,30 @@ export const withConfigOverride: {
 // Prompt Conversion
 // =============================================================================
 
+// FileSources records whether request files stream through the HTTP body (test/StreamingRequest.test.ts).
+type FileSources = {
+  readonly enabled: boolean
+  streamed: boolean
+  readonly fileUrlToStream: FileUrlToStream | undefined
+}
+
+const unsupportedStreamedClient = (method: string) =>
+  Effect.fail(AiError.make({
+    module: "OpenAiLanguageModel",
+    method,
+    reason: new AiError.InvalidRequestError({ description: "Client does not support prepared HTTP request bodies" })
+  }))
+
 const prepareMessages = Effect.fnUntraced(
   function*<Tools extends ReadonlyArray<Tool.Any>>({
+    files,
     config,
     options,
     isReasoningModel,
     include,
     toolNameMapper
   }: {
+    readonly files: FileSources
     readonly config: typeof Config.Service
     readonly options: LanguageModel.ProviderOptions
     readonly include: Set<typeof OpenAiSchema.IncludeEnum.Encoded>
@@ -957,7 +1002,7 @@ const prepareMessages = Effect.fnUntraced(
               }
 
               case "file": {
-                content.push(yield* prepareFilePart(part, index, config))
+                content.push(yield* prepareFilePart(part, index, config, files))
                 break
               }
             }
@@ -1356,7 +1401,7 @@ const prepareMessages = Effect.fnUntraced(
               call_id: part.id,
               output: Predicate.isUndefined(part.modelOutput)
                 ? typeof part.result === "string" ? part.result : JSON.stringify(part.result)
-                : yield* prepareToolResultOutput(part.modelOutput, config),
+                : yield* prepareToolResultOutput(part.modelOutput, config, files),
               ...(Predicate.isNotNull(status) ? { status } : {})
             })
           }
@@ -3098,7 +3143,8 @@ const prepareTools = Effect.fnUntraced(function*<Tools extends ReadonlyArray<Too
 
 const prepareToolResultOutput = Effect.fnUntraced(function*(
   modelOutput: ReadonlyArray<Prompt.ToolModelOutputPart>,
-  config: typeof Config.Service
+  config: typeof Config.Service,
+  files: FileSources
 ): Effect.fn.Return<string | Array<typeof OpenAiSchema.InputContent.Encoded>, AiError.AiError> {
   if (modelOutput.length === 0) {
     return ""
@@ -3109,7 +3155,7 @@ const prepareToolResultOutput = Effect.fnUntraced(function*(
     output.push(
       part.type === "text"
         ? { type: "input_text", text: part.text, ...getPromptCacheBreakpoint(part) }
-        : yield* prepareFilePart(part, index, config)
+        : yield* prepareFilePart(part, index, config, files)
     )
   }
   return output
@@ -3118,9 +3164,44 @@ const prepareToolResultOutput = Effect.fnUntraced(function*(
 const prepareFilePart = Effect.fnUntraced(function*(
   part: Prompt.FilePart,
   index: number,
-  config: typeof Config.Service
+  config: typeof Config.Service,
+  files: FileSources
 ): Effect.fn.Return<typeof OpenAiSchema.InputContent.Encoded, AiError.AiError> {
   const promptCacheBreakpoint = getPromptCacheBreakpoint(part)
+
+  // Resolved URLs and opted-in inline bytes are written into the body as it is sent (test/StreamingRequest.test.ts).
+  const source = part.data instanceof URL
+    ? files.fileUrlToStream?.(part.data, part.mediaType)
+    : files.enabled && part.data instanceof Uint8Array
+    ? Stream.succeed(part.data)
+    : undefined
+  if (source !== undefined && part.mediaType.startsWith("image/")) {
+    files.streamed = true
+    const mediaType = part.mediaType === "image/*" ? "image/jpeg" : part.mediaType
+    return attachFileStream(
+      {
+        type: "input_image" as const,
+        image_url: `data:${mediaType};base64,`,
+        detail: getImageDetail(part),
+        ...promptCacheBreakpoint
+      },
+      "image_url",
+      source
+    )
+  }
+  if (source !== undefined && part.mediaType === "application/pdf") {
+    files.streamed = true
+    return attachFileStream(
+      {
+        type: "input_file" as const,
+        filename: part.fileName ?? `part-${index}.pdf`,
+        file_data: "data:application/pdf;base64,",
+        ...promptCacheBreakpoint
+      },
+      "file_data",
+      source
+    )
+  }
 
   if (part.mediaType.startsWith("image/")) {
     const detail = getImageDetail(part)
