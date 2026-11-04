@@ -626,6 +626,13 @@ export const make = Effect.fnUntraced(function*({ model, config: providerConfig 
       readonly request: CreateResponseRequestJson
       readonly toolCodecs: ToolCodecs
     }, AiError.AiError> {
+      if (config.n !== undefined && config.n !== 1) {
+        return yield* AiError.make({
+          module: "OpenAiLanguageModel",
+          method: "makeRequest",
+          reason: new AiError.InvalidRequestError({ description: "LanguageModel accepts one completion; n must be 1" })
+        })
+      }
       const messages = yield* prepareMessages({
         config,
         options,
@@ -1192,6 +1199,13 @@ const makeStreamResponse = Effect.fnUntraced(
           })
         }
 
+        if (event.choices.some((choice) => choice.index !== 0)) {
+          return yield* AiError.make({
+            module: "OpenAiLanguageModel",
+            method: "makeStreamResponse",
+            reason: new AiError.InvalidResponseError({ description: "Expected completion choice index 0" })
+          })
+        }
         const choice = event.choices[0]
         if (Predicate.isUndefined(choice)) {
           return parts

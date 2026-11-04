@@ -429,7 +429,7 @@ it.effect("rejects multiple compatible choices before sending a request", () =>
   Effect.gen(function*() {
     const { stream, requests } = fixture("compat", "valid", false, "reasoning", { config: { n: 2 } })
     const result = yield* Stream.runCollect(stream()).pipe(Effect.result)
-    assert.isTrue(Result.isFailure(result))
+    assert.isTrue(Result.isFailure(result) && result.failure.reason._tag === "InvalidRequestError")
     assert.strictEqual(requests.length, 0)
   }))
 
@@ -443,7 +443,7 @@ it.effect("does not concatenate unexpected alternative choices", () =>
     }))
     const { stream } = fixture("compat", "valid", false, "reasoning", { events })
     const result = yield* Stream.runCollect(stream()).pipe(Effect.result)
-    assert.isTrue(Result.isFailure(result))
+    assert.isTrue(Result.isFailure(result) && result.failure.reason._tag === "InvalidResponseError")
   }))
 
 for (const input of [undefined, null, 0]) {
