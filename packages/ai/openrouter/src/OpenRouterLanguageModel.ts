@@ -11,6 +11,7 @@
  */
 /** @effect-diagnostics preferSchemaOverJson:skip-file */
 import * as ProviderLanguageModel from "@tardie/ai/LanguageModel"
+import * as ToolResult from "@tardie/ai/ToolResult"
 import * as AiError from "effect/ai/AiError"
 import { toCodecAnthropic } from "effect/ai/AnthropicStructuredOutput"
 import * as IdGenerator from "effect/ai/IdGenerator"
@@ -706,7 +707,7 @@ const prepareMessages = Effect.fnUntraced(
 
     const reasoningDetailsTracker = new ReasoningDetailsDuplicateTracker()
 
-    for (const message of options.prompt.content) {
+    for (const message of ToolResult.prepare(options.prompt, () => false).content) {
       switch (message.role) {
         case "system": {
           const cache_control = getCacheControl(message)

@@ -10,6 +10,7 @@
  * @since 4.0.0
  */
 import * as ProviderLanguageModel from "@tardie/ai/LanguageModel"
+import * as ToolResult from "@tardie/ai/ToolResult"
 import * as AiError from "effect/ai/AiError"
 import * as LanguageModel from "effect/ai/LanguageModel"
 import * as AiModel from "effect/ai/Model"
@@ -791,7 +792,7 @@ const prepareMessages = Effect.fnUntraced(
   }): Effect.fn.Return<ReadonlyArray<ChatCompletionRequestMessage>, AiError.AiError> {
     const messages: Array<ChatCompletionRequestMessage> = []
 
-    for (const message of options.prompt.content) {
+    for (const message of ToolResult.prepare(options.prompt, () => false).content) {
       switch (message.role) {
         case "system": {
           messages.push({

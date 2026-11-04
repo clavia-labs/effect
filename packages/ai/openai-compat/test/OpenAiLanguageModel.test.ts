@@ -743,12 +743,12 @@ describe("OpenAiLanguageModel", () => {
 
     const modelOutputCases = [
       {
-        label: "as text with file placeholders",
+        label: "as text with files moved to a following user message",
         modelOutput: [
           Prompt.textPart({ text: "Screenshot" }),
           Prompt.filePart({ mediaType: "image/png", fileName: "screenshot.png", data: "iVBORw0KGgo=" })
         ],
-        content: "Screenshot\n[image/png screenshot.png omitted]"
+        content: "Screenshot"
       },
       { label: "as an empty string when it is empty", modelOutput: [], content: "" }
     ]
