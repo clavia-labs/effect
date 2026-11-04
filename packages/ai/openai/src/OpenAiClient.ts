@@ -35,8 +35,7 @@ import * as Semaphore from "effect/Semaphore"
 import * as Socket from "effect/socket/Socket"
 import * as Stream from "effect/Stream"
 import * as Errors from "./internal/errors.ts"
-import { DEFAULT_REQUEST_BODY_CHUNK_BYTES } from "./internal/requestBody.ts"
-export { DEFAULT_REQUEST_BODY_CHUNK_BYTES, getRequestBody, setRequestBody } from "./internal/requestBody.ts"
+import * as RequestBody from "./internal/requestBody.ts"
 import { OpenAiConfig } from "./OpenAiConfig.ts"
 import * as OpenAiSchema from "./OpenAiSchema.ts"
 
@@ -159,6 +158,33 @@ export class OpenAiClient extends Context.Service<OpenAiClient, Service>()(
 export type FileUrlToStream = (url: URL, mediaType: string) => Stream.Stream<Uint8Array, Error> | undefined
 
 /**
+ * DEFAULT_REQUEST_BODY_CHUNK_BYTES limits input bytes per encoded request chunk; 48 KiB encodes to 64 KiB of base64 without padding.
+ *
+ * @stability unstable
+ * @category configuration
+ * @since 4.0.0
+ */
+export const DEFAULT_REQUEST_BODY_CHUNK_BYTES = RequestBody.DEFAULT_REQUEST_BODY_CHUNK_BYTES
+
+/**
+ * getRequestBody reads structured Responses request JSON without consuming streamed file bytes.
+ *
+ * @stability unstable
+ * @category request bodies
+ * @since 4.0.0
+ */
+export const getRequestBody = RequestBody.getRequestBody
+
+/**
+ * setRequestBody rebuilds request JSON and preserves cold file sources on streamed requests.
+ *
+ * @stability unstable
+ * @category request bodies
+ * @since 4.0.0
+ */
+export const setRequestBody = RequestBody.setRequestBody
+
+/**
  * DEFAULT_STREAM_FILES keeps inline file bodies buffered unless explicitly enabled.
  *
  * @stability unstable
@@ -268,7 +294,7 @@ export const make = Effect.fnUntraced(
   ): Effect.fn.Return<Service, never, HttpClient.HttpClient> {
     const baseClient = yield* HttpClient.HttpClient
     const apiUrl = options.apiUrl ?? "https://api.openai.com/v1"
-    const requestBodyChunkBytes = options.requestBodyChunkBytes ?? DEFAULT_REQUEST_BODY_CHUNK_BYTES
+    const requestBodyChunkBytes = options.requestBodyChunkBytes ?? RequestBody.DEFAULT_REQUEST_BODY_CHUNK_BYTES
     if (!Number.isSafeInteger(requestBodyChunkBytes) || requestBodyChunkBytes < 1) {
       return yield* Effect.die(new RangeError("requestBodyChunkBytes must be a positive safe integer"))
     }

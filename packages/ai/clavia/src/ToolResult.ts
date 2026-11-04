@@ -1,5 +1,6 @@
 /**
  * Tool-result file placement shared by provider adapters.
+ *
  * @stability unstable
  * @since 0.0.5
  */
@@ -7,7 +8,9 @@ import * as Prompt from "effect/ai/Prompt"
 
 /**
  * prepare keeps supported files in tool results and moves remaining files after the tool-result batch.
+ *
  * @stability unstable
+ * @category combinators
  * @since 0.0.5
  */
 export const prepare = (

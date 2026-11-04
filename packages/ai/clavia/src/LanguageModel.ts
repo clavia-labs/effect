@@ -13,8 +13,8 @@ import * as Stream from "effect/Stream"
  * ResponseFormat supplies the provider format for text generation within its context.
  * Object generation retains its own schema (test/LanguageModel.test.ts).
  *
- * @category services
  * @stability unstable
+ * @category services
  * @since 0.0.1
  */
 export class ResponseFormat extends Context.Service<ResponseFormat, LanguageModel.ProviderOptions["responseFormat"]>()(
@@ -33,8 +33,8 @@ const optionsWithFormat = (options: LanguageModel.ProviderOptions) =>
 /**
  * make constructs an upstream LanguageModel that applies a scoped ResponseFormat to text generation (test/LanguageModel.test.ts).
  *
- * @category constructors
  * @stability unstable
+ * @category constructors
  * @since 0.0.1
  */
 export const make: typeof LanguageModel.make = (hooks) =>

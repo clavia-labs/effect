@@ -44,8 +44,8 @@ const document: Schema.Codec<NativeJson> = Schema.suspend(() =>
 /**
  * ModelConfigSchema validates AWS Converse configuration (../../clavia/test/ConfigSchema.test.ts).
  *
- * @category schemas
  * @stability unstable
+ * @category schemas
  * @since 0.0.2
  */
 export const ModelConfigSchema = Schema.Struct({
@@ -87,40 +87,40 @@ export const ModelConfigSchema = Schema.Struct({
 /**
  * ModelConfig contains AWS Converse request defaults.
  *
- * @category models
  * @stability unstable
+ * @category models
  * @since 0.0.2
  */
 export type ModelConfig = typeof ModelConfigSchema.Encoded
 /**
  * ConfigSchema validates scoped AWS Converse defaults.
  *
- * @category schemas
  * @stability unstable
+ * @category schemas
  * @since 0.0.2
  */
 export const ConfigSchema = ModelConfigSchema
 /**
  * Send performs a Converse stream request with cancellation.
  *
- * @category models
  * @stability unstable
+ * @category models
  * @since 0.0.1
  */
 export type Send = (input: ConverseStreamCommandInput, signal: AbortSignal) => Promise<ConverseStreamCommandOutput>
 /**
  * ClientOptions selects AWS client settings or an injected transport.
  *
- * @category models
  * @stability unstable
+ * @category models
  * @since 0.0.1
  */
 export type ClientOptions = BedrockRuntimeClientConfig | { readonly send: Send }
 /**
  * Config supplies scoped AWS Converse defaults.
  *
- * @category services
  * @stability unstable
+ * @category services
  * @since 0.0.1
  */
 export class Config extends Context.Service<Config, ModelConfig>()("@tardie/ai-bedrock/Config") {}
@@ -221,8 +221,8 @@ const providerError = (cause: unknown): AiError.AiError => {
 /**
  * layer supplies Converse streaming through the AWS SDK or an injected transport (test/BedrockLanguageModel.test.ts).
  *
- * @category layers
  * @stability unstable
+ * @category layers
  * @since 0.0.1
  */
 export const layer = (
