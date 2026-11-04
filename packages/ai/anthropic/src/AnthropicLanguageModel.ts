@@ -2114,6 +2114,7 @@ const makeStreamResponse = Effect.fnUntraced(
     let container: typeof Generated.BetaContainer.Encoded | null = null
     let contextManagement: typeof Generated.BetaResponseContextManagement.Encoded | null = null
     let finishReason: Response.FinishReason = "unknown"
+    let toolParseError: AiError.AiError | undefined
     let stopSequence: string | null = null
     let rawUsage: typeof Generated.BetaMessage.Encoded["usage"] | null = null
     const mcpToolCalls: Map<string, Response.ToolCallPartEncoded> = new Map()
@@ -2825,7 +2826,7 @@ const makeStreamResponse = Effect.fnUntraced(
                     }
                   }
 
-                  const toolParams = yield* Effect.try({
+                  const parsed = yield* Effect.try({
                     try: () => Tool.unsafeSecureJsonParse(finalParams),
                     catch: (cause) =>
                       AiError.make({
@@ -2836,7 +2837,12 @@ const makeStreamResponse = Effect.fnUntraced(
                           description: `Failed to securely JSON parse tool parameters: ${cause}`
                         })
                       })
-                  })
+                  }).pipe(Effect.result)
+                  if (parsed._tag === "Failure") {
+                    toolParseError ??= parsed.failure
+                    break
+                  }
+                  const toolParams = parsed.success
 
                   const params = contentBlock.providerExecuted === true
                     ? toolParams
@@ -2876,9 +2882,11 @@ const makeStreamResponse = Effect.fnUntraced(
           }
         }
 
+        if (parts.some((part) => part.type === "finish" && part.reason === "length")) toolParseError = undefined
         return parts
       })),
-      Stream.flattenIterable
+      Stream.flattenIterable,
+      Stream.concat(Stream.suspend(() => toolParseError === undefined ? Stream.empty : Stream.fail(toolParseError)))
     )
   }
 )

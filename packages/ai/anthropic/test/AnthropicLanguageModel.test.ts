@@ -440,8 +440,15 @@ describe("AnthropicLanguageModel", () => {
         )
       }))
 
-    for (const blockType of ["tool_use", "server_tool_use"] as const) {
-      it.effect(`fails with AiError for malformed streamed ${blockType} JSON`, () =>
+    for (
+      const [blockType, stopReason] of [
+        ["tool_use", "end_turn"],
+        ["server_tool_use", "end_turn"],
+        ["tool_use", "max_tokens"],
+        ["server_tool_use", "max_tokens"]
+      ] as const
+    ) {
+      it.effect(`handles malformed streamed ${blockType} JSON with stop reason ${stopReason}`, () =>
         Effect.gen(function*() {
           const toolName = blockType === "tool_use" ? "GlobTool" : "web_search"
           const layer = AnthropicClient.layer({ apiKey: Redacted.make("sk-test-key") }).pipe(
@@ -493,7 +500,7 @@ describe("AnthropicLanguageModel", () => {
                   { type: "content_block_stop", index: 0 },
                   {
                     type: "message_delta",
-                    delta: { stop_reason: "max_tokens", stop_sequence: null },
+                    delta: { stop_reason: stopReason, stop_sequence: null },
                     usage: {
                       cache_creation_input_tokens: null,
                       cache_read_input_tokens: null,
@@ -521,6 +528,16 @@ describe("AnthropicLanguageModel", () => {
             Effect.exit
           )
 
+          if (stopReason === "max_tokens") {
+            assert.isTrue(Exit.isSuccess(exit))
+            if (!Exit.isSuccess(exit)) return
+            const parts = globalThis.Array.from(exit.value)
+            assert.strictEqual(parts.filter((part) => part.type === "tool-call").length, 0)
+            const finish = parts.find((part) => part.type === "finish")
+            assert.strictEqual(finish?.reason, "length")
+            assert.strictEqual(finish?.usage.outputTokens.total, 5)
+            return
+          }
           assert.isTrue(Exit.isFailure(exit))
           if (!Exit.isFailure(exit)) {
             return yield* Effect.die(new Error("Expected malformed tool JSON to fail"))

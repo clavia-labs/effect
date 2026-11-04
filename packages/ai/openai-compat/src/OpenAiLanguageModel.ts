@@ -1089,6 +1089,7 @@ const makeStreamResponse = Effect.fnUntraced(
     let serviceTier: string | undefined = undefined
     let usage: CreateResponse200["usage"] = undefined
     let finishReason: string | null | undefined = undefined
+    let toolParseError: AiError.AiError | undefined
     let metadataEmitted = false
     let textStarted = false
     let textId = ""
@@ -1133,7 +1134,7 @@ const makeStreamResponse = Effect.fnUntraced(
 
           for (const toolCall of Object.values(activeToolCalls)) {
             const toolParams = toolCall.arguments.length > 0 ? toolCall.arguments : "{}"
-            const parsedParams = yield* Effect.try({
+            const parsed = yield* Effect.try({
               try: () => Tool.unsafeSecureJsonParse(toolParams),
               catch: (cause) =>
                 AiError.make({
@@ -1144,9 +1145,13 @@ const makeStreamResponse = Effect.fnUntraced(
                     description: `Failed to securely JSON parse tool parameters: ${cause}`
                   })
                 })
-            })
-            const params = yield* transformToolCallParams(options, toolCall.name, parsedParams, toolCodecs)
+            }).pipe(Effect.result)
             parts.push({ type: "tool-params-end", id: toolCall.id })
+            if (parsed._tag === "Failure") {
+              toolParseError ??= parsed.failure
+              continue
+            }
+            const params = yield* transformToolCallParams(options, toolCall.name, parsed.success, toolCodecs)
             parts.push({
               type: "tool-call",
               id: toolCall.id,
@@ -1163,9 +1168,11 @@ const makeStreamResponse = Effect.fnUntraced(
           }
 
           const normalizedServiceTier = normalizeServiceTier(serviceTier)
+          const resolvedFinishReason = InternalUtilities.resolveFinishReason(finishReason, hasToolCalls)
+          if (resolvedFinishReason === "length") toolParseError = undefined
           parts.push({
             type: "finish",
-            reason: InternalUtilities.resolveFinishReason(finishReason, hasToolCalls),
+            reason: resolvedFinishReason,
             usage: getUsage(usage),
             response: buildHttpResponseDetails(response),
             ...(normalizedServiceTier !== undefined
@@ -1290,7 +1297,8 @@ const makeStreamResponse = Effect.fnUntraced(
         return parts
       })),
       Stream.filter(Arr.isArrayNonEmpty),
-      Stream.flattenArray
+      Stream.flattenArray,
+      Stream.concat(Stream.suspend(() => toolParseError === undefined ? Stream.empty : Stream.fail(toolParseError)))
     )
   }
 )

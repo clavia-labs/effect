@@ -1843,6 +1843,7 @@ const makeStreamResponse = Effect.fnUntraced(
     const streamApprovalRequests = new Map<string, string>()
 
     let hasToolCalls = false
+    let toolParseError: AiError.AiError | undefined
 
     // Track annotations for current message to include in text-end metadata
     const activeAnnotations: Array<typeof OpenAiSchema.Annotation.Encoded> = []
@@ -2295,7 +2296,7 @@ const makeStreamResponse = Effect.fnUntraced(
                 const toolName = event.item.name
                 const toolArgs = event.item.arguments
 
-                const toolParams = yield* Effect.try({
+                const parsed = yield* Effect.try({
                   try: () => Tool.unsafeSecureJsonParse(toolArgs),
                   catch: (cause) =>
                     AiError.make({
@@ -2306,9 +2307,14 @@ const makeStreamResponse = Effect.fnUntraced(
                         description: `Failed securely JSON parse tool parameters: ${cause}`
                       })
                     })
-                })
+                }).pipe(Effect.result)
+                if (parsed._tag === "Failure") {
+                  toolParseError ??= parsed.failure
+                  parts.push({ type: "tool-params-end", id: event.item.call_id })
+                  break
+                }
 
-                const params = yield* transformToolCallParams(options, toolName, toolParams)
+                const params = yield* transformToolCallParams(options, toolName, parsed.success)
 
                 parts.push({
                   type: "tool-params-end",
@@ -2603,7 +2609,7 @@ const makeStreamResponse = Effect.fnUntraced(
             ) {
               hasToolCalls = true
 
-              const toolParams = yield* Effect.try({
+              const parsed = yield* Effect.try({
                 try: () => Tool.unsafeSecureJsonParse(event.arguments),
                 catch: (cause) =>
                   AiError.make({
@@ -2614,9 +2620,15 @@ const makeStreamResponse = Effect.fnUntraced(
                       description: `Failed securely JSON parse tool parameters: ${cause}`
                     })
                   })
-              })
+              }).pipe(Effect.result)
+              if (parsed._tag === "Failure") {
+                toolParseError ??= parsed.failure
+                parts.push({ type: "tool-params-end", id: toolCall.id })
+                toolCall.functionCall.emitted = true
+                break
+              }
 
-              const params = yield* transformToolCallParams(options, toolCall.name, toolParams)
+              const params = yield* transformToolCallParams(options, toolCall.name, parsed.success)
 
               parts.push({
                 type: "tool-params-end",
@@ -2776,9 +2788,11 @@ const makeStreamResponse = Effect.fnUntraced(
           }
         }
 
+        if (parts.some((part) => part.type === "finish" && part.reason === "length")) toolParseError = undefined
         return parts
       })),
-      Stream.flattenIterable
+      Stream.flattenIterable,
+      Stream.concat(Stream.suspend(() => toolParseError === undefined ? Stream.empty : Stream.fail(toolParseError)))
     )
   }
 )
