@@ -746,7 +746,7 @@ test("Bedrock does not retain arbitrary plaintext response content", async () =>
 })
 
 for (const mode of ["missing-stream", "malformed-stream"] as const) {
-  test(`Bedrock classifies ${mode} as invalid provider output`, async () => {
+  test(`Bedrock classifies ${mode} as an invalid response`, async () => {
     let requests = 0
     const outcome = await Effect.runPromise(
       LanguageModel.streamText({ prompt: "hello" }).pipe(
@@ -771,7 +771,7 @@ for (const mode of ["missing-stream", "malformed-stream"] as const) {
     expect(requests).toBe(1)
     expect(outcome._tag).toBe("Failure")
     if (outcome._tag === "Failure") {
-      expect(outcome.failure).toMatchObject({ reason: { _tag: "InvalidOutputError" }, isRetryable: true })
+      expect(outcome.failure).toMatchObject({ reason: { _tag: "InvalidResponseError" }, isRetryable: false })
     }
   })
 }

@@ -144,6 +144,8 @@ const bedrockError = (reason: AiError.AiErrorReason) =>
   AiError.make({ module: "BedrockLanguageModel", method: "streamText", reason })
 const inputError = (description: string) => bedrockError(AiError.InvalidUserInputError.make({ description }))
 const outputError = (cause: unknown) => bedrockError(AiError.InvalidOutputError.make({ description: String(cause) }))
+const responseError = (cause: unknown) =>
+  bedrockError(AiError.InvalidResponseError.make({ description: String(cause) }))
 const recordOf = (value: unknown): Record<string, unknown> | undefined =>
   typeof value === "object" && value !== null ? value as Record<string, unknown> : undefined
 
@@ -262,7 +264,7 @@ export const layer = (
             try: () => send(input, controller.signal),
             catch: providerError
           })
-          if (response.stream === undefined) return yield* outputError("Bedrock returned no stream")
+          if (response.stream === undefined) return yield* responseError("Bedrock returned no stream")
           const state = new BedrockResponse(names.fromWire)
           return Stream.fromAsyncIterable(abortable(response.stream, controller), providerError).pipe(
             Stream.mapEffect((event) => state.accept(event)),
@@ -548,7 +550,7 @@ class BedrockResponse {
         const { contentBlockIndex: index, start } = event.contentBlockStart
         const call = start?.toolUse
         if (index === undefined || call?.toolUseId === undefined || call.name === undefined || this.blocks.has(index)) {
-          return yield* outputError("Invalid Bedrock tool block start")
+          return yield* responseError("Invalid Bedrock tool block start")
         }
         this.blocks.set(index, {
           type: "tool",
@@ -562,7 +564,7 @@ class BedrockResponse {
       }
       if (event.contentBlockDelta !== undefined) {
         const { contentBlockIndex: index, delta } = event.contentBlockDelta
-        if (index === undefined || delta === undefined) return yield* outputError("Invalid Bedrock content delta")
+        if (index === undefined || delta === undefined) return yield* responseError("Invalid Bedrock content delta")
         let block = this.blocks.get(index)
         const type = delta.toolUse !== undefined
           ? "tool"
@@ -571,14 +573,14 @@ class BedrockResponse {
           : delta.text !== undefined
           ? "text"
           : undefined
-        if (type === undefined) return yield* outputError("Unsupported Bedrock content delta")
+        if (type === undefined) return yield* responseError("Unsupported Bedrock content delta")
         if (block === undefined) {
-          if (type === "tool") return yield* outputError("Bedrock tool delta has no block start")
+          if (type === "tool") return yield* responseError("Bedrock tool delta has no block start")
           block = { type, id: String(index), text: "", signature: "", redacted: [] }
           this.blocks.set(index, block)
           parts.push({ type: type === "text" ? "text-start" : "reasoning-start", id: block.id })
         }
-        if (block.type !== type) return yield* outputError("Bedrock content block changed type")
+        if (block.type !== type) return yield* responseError("Bedrock content block changed type")
         const text = delta.text ?? delta.toolUse?.input ?? delta.reasoningContent?.text ?? ""
         block.text += text
         block.signature += delta.reasoningContent?.signature ?? ""
@@ -598,7 +600,7 @@ class BedrockResponse {
       if (event.contentBlockStop !== undefined) {
         const index = event.contentBlockStop.contentBlockIndex
         const block = index === undefined ? undefined : this.blocks.get(index)
-        if (block === undefined) return yield* outputError("Bedrock stopped an unknown block")
+        if (block === undefined) return yield* responseError("Bedrock stopped an unknown block")
         this.blocks.delete(index!)
         if (block.type === "tool") {
           this.calls.set(index!, block)
@@ -618,11 +620,11 @@ class BedrockResponse {
           })}
       }
       if (event.messageStop !== undefined) {
-        if (this.blocks.size !== 0) return yield* outputError("Bedrock stopped with unfinished blocks")
+        if (this.blocks.size !== 0) return yield* responseError("Bedrock stopped with unfinished blocks")
         this.stop = event.messageStop.stopReason
       }
       if (event.metadata !== undefined) {
-        if (this.stop === undefined) return yield* outputError("Bedrock usage arrived before message completion")
+        if (this.stop === undefined) return yield* responseError("Bedrock usage arrived before message completion")
         const reason = stopReason(this.stop)
         if (reason === "stop" || reason === "tool-calls" || reason === "length") {
           for (const [, call] of [...this.calls].sort(([a], [b]) => a - b)) {
@@ -643,7 +645,7 @@ class BedrockResponse {
           : {
             usage: yield* Schema.decodeUnknownEffect(Schema.Record(Schema.String, Schema.Json))(
               JSON.parse(JSON.stringify(usage))
-            ).pipe(Effect.mapError(outputError))
+            ).pipe(Effect.mapError(responseError))
           }
         parts.push({
           type: "finish",
