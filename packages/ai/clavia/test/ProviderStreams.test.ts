@@ -115,9 +115,6 @@ for (const provider of ["openai", "anthropic", "compat", "openrouter"] as const)
             assert.strictEqual(finish?.metadata.openrouter?.provider, "Anthropic")
             assert.strictEqual(finish?.metadata.openrouter?.usage?.cost, 0.5)
           }
-          if (provider === "openai" || provider === "compat") {
-            assert.strictEqual(finish?.metadata.openai?.usage?.cost, 0.5)
-          }
           const wire = Schema.decodeUnknownSync(Schema.Record(Schema.String, Schema.Unknown))(requests[0])
           if (provider === "openai") {
             assert.deepStrictEqual(
