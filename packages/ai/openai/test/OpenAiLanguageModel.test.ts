@@ -1511,6 +1511,20 @@ describe("OpenAiLanguageModel", () => {
           })
         }))
 
+      it.effect("preserves fast service tier", () =>
+        Effect.gen(function*() {
+          const body = JSON.stringify(makeDefaultResponse({ service_tier: "fast" }))
+          const result = yield* LanguageModel.generateText({ prompt: "test" }).pipe(
+            Effect.provide(OpenAiLanguageModel.model("gpt-4o-mini")),
+            Effect.provide(OpenAiClient.layer({ apiKey: Redacted.make("sk-test-key") })),
+            Effect.provideService(HttpClient.HttpClient, makeRawResponseClient(body, "application/json"))
+          )
+
+          const finish = result.content.find((part) => part.type === "finish")
+          assert.isDefined(finish)
+          deepStrictEqual(finish.metadata.openai, { serviceTier: "fast" })
+        }))
+
       it.effect("extracts text from output_text", () =>
         Effect.gen(function*() {
           const result = yield* LanguageModel.generateText({
@@ -2027,7 +2041,7 @@ describe("OpenAiLanguageModel", () => {
         {
           status: "completed",
           serviceTier: "fast",
-          expectedMetadata: { promptCacheDiagnostics: { type: "cache_hit" } }
+          expectedMetadata: { serviceTier: "fast", promptCacheDiagnostics: { type: "cache_hit" } }
         },
         {
           status: "completed",
