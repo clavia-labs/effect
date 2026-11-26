@@ -623,7 +623,7 @@ declare module "effect/ai/Response" {
       /**
        * The service tier reported by OpenAI for the response.
        */
-      readonly serviceTier?: "default" | "auto" | "flex" | "scale" | "priority" | "ultrafast" | null
+      readonly serviceTier?: "default" | "auto" | "flex" | "scale" | "priority" | "fast" | "ultrafast" | null
       /**
        * Prompt cache diagnostics for `prompt_cache_options.comparison_response_id`.
        */
@@ -3451,7 +3451,7 @@ const getUsage = (usage: OpenAiSchema.ResponseUsage | null | undefined): Respons
   }
 }
 
-type ServiceTier = "default" | "auto" | "flex" | "scale" | "priority" | "ultrafast" | null
+type ServiceTier = "default" | "auto" | "flex" | "scale" | "priority" | "fast" | "ultrafast" | null
 
 const toFinishMetadata = (response: OpenAiSchema.Response): {
   readonly metadata: Response.FinishPartMetadata
@@ -3463,6 +3463,7 @@ const toFinishMetadata = (response: OpenAiSchema.Response): {
     case "flex":
     case "scale":
     case "priority":
+    case "fast":
     case "ultrafast":
       serviceTier = response.service_tier
       break
